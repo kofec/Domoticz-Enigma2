@@ -96,16 +96,16 @@
 import Domoticz
 import sys
 import os
-import base64
 import socket
-import configparser
+
+
 
 # Python framework in Domoticz do not include OS dependent path
 #
 
 if sys.platform.startswith('linux'):
-    # linux specific code here
-    sys.path.append(os.path.dirname(os.__file__) + '/dist-packages')
+    # linux specific code here#
+    sys.path.append('/usr/local/lib/python3.5/dist-packages')
 elif sys.platform.startswith('darwin'):
     # mac
     sys.path.append(os.path.dirname(os.__file__) + '/site-packages')
@@ -113,11 +113,50 @@ elif sys.platform.startswith('win32'):
     #  win specific
     sys.path.append(os.path.dirname(os.__file__) + '\site-packages')
 
+import urllib.request
+import xmltodict
 
 class BasePlugin:
     # Connection Status
     isConnected = False
-    KEY = ''
+    KEY = {
+        #             : 116,    # Key "Power"
+        #             : 2,      # Key "1"
+        #             : 3,      # Key "2"
+        #             : 4,      # Key "3"
+        #             : 5,      # Key "4"
+        #             : 6,      # Key "5"
+        #             : 7,      # Key "6"
+        #             : 8,      # Key "7"
+        #             : 9,      # Key "8"
+        #             : 10,     # Key "1"
+        #             : 11,     # Key "0"
+        #             : 412,   # Key "previous#"
+        #             : 407,   # Key "next
+       "VolumeUp"     : 115,   # Key "volume up"
+       "Mute"         : 113,   # Key "mute"
+       "ChannelUp"    : 402,   # Key "bouquet up"
+       "VolumeDown"   : 114,   # Key "volume down"
+        #              : 174,   # Key "lame"
+       "ChannelDown"  : 403,   # Key "bouquet down"
+       "Info"         : 358,   # Key "info"
+       "Up"           : 103,   # Key "up"
+       "ContextMenu"  : 139,   # Key "menu"
+       "Left"         : 105,   # Key "left"
+       "Select"       : 352,   # Key "OK"
+       "Right"        : 106,   # Key "right"
+        #              : 392,   # Key "audio"
+       "Down"         : 108,   # Key "down"
+       #              : 393,   # Key "video"
+       #              : 398,   # Key "red"
+       #              : 399,   # Key "green"
+       #              : 400,   # Key "yellow"
+       #              : 401,   # Key "blue"
+       #              : 377,   # Key "tv"
+       #              : 385,   # Key "radio"
+       #              : 388,   # Key "text"
+       #              : 138,   # Key "help"
+    }
     config = ''
 
     # Domoticz call back functions
@@ -128,18 +167,24 @@ class BasePlugin:
         if Parameters["Mode6"] == "Debug":
             Domoticz.Debugging(1)
             DumpConfigToLog()
+
+        # Do not change below UNIT constants!
+        self.UNIT_STATUS_REMOTE     = 1
+        self.UNIT_POWER_CONTROL     = 2
+
+
         if (len(Devices) == 0):
-            Domoticz.Device(Name="Status", Unit=1, Type=17, Image=2, Switchtype=17).Create()
+            Domoticz.Device(Name="Status", Unit=self.UNIT_STATUS_REMOTE, Type=17, Image=2, Switchtype=17).Create()
             Options = {"LevelActions": "||||",
                        "LevelNames": "Off|Standby|Reboot|RestartE2|On",
                        "LevelOffHidden": "true",
                        "SelectorStyle": "0"
                        }
-            Domoticz.Device(Name="Source", Unit=2, TypeName="Selector Switch", Switchtype=18, Image=12,
+            Domoticz.Device(Name="Source", Unit=self.UNIT_POWER_CONTROL , TypeName="Selector Switch", Switchtype=18, Image=12,
                             Options=Options).Create()
             Domoticz.Log("Devices created.")
 
-        Domoticz.Heartbeat(15)
+        Domoticz.Heartbeat(60)
 
         self.config = {
             "description": "Domoticz",
@@ -156,8 +201,9 @@ class BasePlugin:
         if (self.isConnected == True):
             if Parameters["Mode6"] == "Debug":
                 Domoticz.Log("Devices are connected - Initialisation")
-            UpdateDevice(1, 1, 'Enigma2 Available')
-            UpdateDevice(2, 40, '40')
+            UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 Available')
+            self.EnigmaDetails()
+            UpdateDevice(self.UNIT_POWER_CONTROL, 40, '40')
 
         return True
 
@@ -177,20 +223,97 @@ class BasePlugin:
 
         return
 
+    def EnigmaDetails(self):
+        urll = 'http://'+str(Parameters["Address"])+'/web/about'
+        username = str(Parameters["Mode1"])
+        password = str(Parameters["Mode2"])
+        # create a password manager
+        passman = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+        # Add the username and password.
+        # If we knew the realm, we could use it instead of None.
+        passman.add_password(None, urll, username, password)
+
+        authhandler = urllib.request.HTTPBasicAuthHandler(passman)
+        # create "opener" (OpenerDirector instance)
+        opener = urllib.request.build_opener(authhandler)
+        # use the opener to fetch a URL
+        pagehandle = opener.open(urll)
+        data = pagehandle.read()
+        pagehandle.close()
+        data = xmltodict.parse(data)
+        data = data["e2abouts"]["e2about"]
+        for x in data.keys():
+            Domoticz.Log(str(x) + " => " + str(data[x]))
+        return
 
     # executed each time we click on device thru domoticz GUI
     def onCommand(self, Unit, Command, Level, Hue):
         Domoticz.Log("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(Level) + ", Connected: " + str(self.isConnected))
 
-        Command = Command.strip()
-        action, sep, params = Command.partition(' ')
-        action = action.capitalize()
+        if Unit == self.UNIT_STATUS_REMOTE and str(Command) in self.KEY:
+            urll = 'http://'+str(Parameters["Address"])+'/web/remotecontrol?command='+str(self.KEY[str(Command)])
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) < 20:
+            urll = 'http://' + str(Parameters["Address"]) + '/web/powerstate?newstate=5'
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 20:
+            urll = 'http://' + str(Parameters["Address"]) + '/web/powerstate?newstate=2'
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 30:
+            urll = 'http://' + str(Parameters["Address"]) + '/web/powerstate?newstate=3'
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 40:
+            urll = 'http://' + str(Parameters["Address"]) + '/web/powerstate?newstate=4'
+        else:
+            urll = 'http://' + str(Parameters["Address"]) + '/web/message?text=onCommand%20called%20for%0AUnit' + str(Unit) + '%0AParameter%20' + str(Command) + '%0ALevel:%20' + str(Level) + '%0AConnected:%20' + str(self.isConnected)+'&type=1&timeout=3'
+        username = str(Parameters["Mode1"])
+        password = str(Parameters["Mode2"])
+        # create a password manager
+        passman = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+        # Add the username and password.
+        # If we knew the realm, we could use it instead of None.
+        passman.add_password(None, urll, username, password)
 
+        authhandler = urllib.request.HTTPBasicAuthHandler(passman)
+        # create "opener" (OpenerDirector instance)
+        opener = urllib.request.build_opener(authhandler)
+        # use the opener to fetch a URL
+        pagehandle = opener.open(urll)
+        data = pagehandle.read()
+        pagehandle.close()
+        data = xmltodict.parse(data)
+        if Parameters["Mode6"] == "Debug":
+            Domoticz.Log(str(data))
         return True
 
     def onHeartbeat(self):
         Domoticz.Log("onHeartbeat called")
         self.isAlive()
+        if (self.isConnected == True):
+            urll = 'http://' + str(Parameters["Address"]) + '/web/powerstate?'
+            username = str(Parameters["Mode1"])
+            password = str(Parameters["Mode2"])
+            # create a password manager
+            passman = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+            # Add the username and password.
+            # If we knew the realm, we could use it instead of None.
+            passman.add_password(None, urll, username, password)
+
+            authhandler = urllib.request.HTTPBasicAuthHandler(passman)
+            # create "opener" (OpenerDirector instance)
+            opener = urllib.request.build_opener(authhandler)
+            # use the opener to fetch a URL
+            pagehandle = opener.open(urll)
+            data = pagehandle.read()
+            pagehandle.close()
+            data = xmltodict.parse(data)
+            data = str(data["e2powerstate"]["e2instandby"])
+            if Parameters["Mode6"] == "Debug":
+                Domoticz.Log('data["e2powerstate"]["e2instandby"] => '+str(data))
+            if data == "false":
+                UpdateDevice(self.UNIT_POWER_CONTROL, 40, '40')
+            else:
+                UpdateDevice(self.UNIT_POWER_CONTROL, 10, '10')
+            UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 Available')
+        else:
+            UpdateDevice(self.UNIT_STATUS_REMOTE, 0, 'Enigma2 offline')
+            UpdateDevice(self.UNIT_POWER_CONTROL, 0, '0')
         return True
 
     def onConnect(self, Status, Description):
