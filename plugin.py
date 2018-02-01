@@ -6,6 +6,7 @@
 #           Author:     kofec, 2017
 #           1.0.0:  initial release
 #           2.0.0:  Added Remote control Kodi like (customizable)
+#           2.0.1:  clean code and change to wget
 #
 #       
 #           Base on website: https://dream.reichholf.net/wiki/Enigma2:WebInterface
@@ -76,7 +77,7 @@
 # Below is what will be displayed in Domoticz GUI under HW
 #
 """
-<plugin key="Enigma2" name="Enigma2 with Kodi Remote" author="kofec" version="1.0.0" wikilink="no" externallink=" https://dream.reichholf.net/wiki/Enigma2:WebInterface">
+<plugin key="Enigma2" name="Enigma2 with Kodi Remote" author="kofec" version="2.0.1" wikilink="no" externallink=" https://dream.reichholf.net/wiki/Enigma2:WebInterface">
     <params>
         <param field="Address" label="IP Address" width="200px" required="true" default="127.0.0.1"/>
         <param field="Port" label="Port" width="40px" required="true" default="80"/>
@@ -97,24 +98,25 @@ import Domoticz
 import sys
 import os
 import socket
-
-
+import subprocess
 
 # Python framework in Domoticz do not include OS dependent path
 #
+from pathlib import Path
 
-if sys.platform.startswith('linux'):
-    # linux specific code here#
-    sys.path.append('/usr/local/lib/python3.5/dist-packages')
-elif sys.platform.startswith('darwin'):
-    # mac
-    sys.path.append(os.path.dirname(os.__file__) + '/site-packages')
-elif sys.platform.startswith('win32'):
-    #  win specific
-    sys.path.append(os.path.dirname(os.__file__) + '\site-packages')
+pathOfPackages = '/usr/local/lib/python3.5/dist-packages'
 
-import urllib.request
-import xmltodict
+if Path(pathOfPackages).exists():
+    sys.path.append(pathOfPackages)
+    import xmltodict
+else:
+    Domoticz.Log("It can be an issue with import package xmltodict")
+    Domoticz.Log("Find where is located package xmltodict and correct variable: pathOfPackages")
+    Domoticz.Log("pathOfPackages:", pathOfPackages)
+    import xmltodict
+
+socket.setdefaulttimeout(2)
+
 
 class BasePlugin:
     # Connection Status
@@ -133,29 +135,29 @@ class BasePlugin:
         #             : 11,     # Key "0"
         #             : 412,   # Key "previous#"
         #             : 407,   # Key "next
-       "VolumeUp"     : 115,   # Key "volume up"
-       "Mute"         : 113,   # Key "mute"
-       "ChannelUp"    : 402,   # Key "bouquet up"
-       "VolumeDown"   : 114,   # Key "volume down"
+        "VolumeUp": 115,  # Key "volume up"
+        "Mute": 113,  # Key "mute"
+        "ChannelUp": 402,  # Key "bouquet up"
+        "VolumeDown": 114,  # Key "volume down"
         #              : 174,   # Key "lame"
-       "ChannelDown"  : 403,   # Key "bouquet down"
-       "Info"         : 358,   # Key "info"
-       "Up"           : 103,   # Key "up"
-       "ContextMenu"  : 139,   # Key "menu"
-       "Left"         : 105,   # Key "left"
-       "Select"       : 352,   # Key "OK"
-       "Right"        : 106,   # Key "right"
+        "ChannelDown": 403,  # Key "bouquet down"
+        "Info": 358,  # Key "info"
+        "Up": 103,  # Key "up"
+        "ContextMenu": 139,  # Key "menu"
+        "Left": 105,  # Key "left"
+        "Select": 352,  # Key "OK"
+        "Right": 106,  # Key "right"
         #              : 392,   # Key "audio"
-       "Down"         : 108,   # Key "down"
-       #              : 393,   # Key "video"
-       #              : 398,   # Key "red"
-       #              : 399,   # Key "green"
-       #              : 400,   # Key "yellow"
-       #              : 401,   # Key "blue"
-       #              : 377,   # Key "tv"
-       #              : 385,   # Key "radio"
-       #              : 388,   # Key "text"
-       #              : 138,   # Key "help"
+        "Down": 108,  # Key "down"
+        #              : 393,   # Key "video"
+        #              : 398,   # Key "red"
+        #              : 399,   # Key "green"
+        #              : 400,   # Key "yellow"
+        #              : 401,   # Key "blue"
+        #              : 377,   # Key "tv"
+        #              : 385,   # Key "radio"
+        #              : 388,   # Key "text"
+        #              : 138,   # Key "help"
     }
     config = ''
 
@@ -169,9 +171,8 @@ class BasePlugin:
             DumpConfigToLog()
 
         # Do not change below UNIT constants!
-        self.UNIT_STATUS_REMOTE     = 1
-        self.UNIT_POWER_CONTROL     = 2
-
+        self.UNIT_STATUS_REMOTE = 1
+        self.UNIT_POWER_CONTROL = 2
 
         if (len(Devices) == 0):
             Domoticz.Device(Name="Status", Unit=self.UNIT_STATUS_REMOTE, Type=17, Image=2, Switchtype=17).Create()
@@ -180,7 +181,8 @@ class BasePlugin:
                        "LevelOffHidden": "true",
                        "SelectorStyle": "0"
                        }
-            Domoticz.Device(Name="Source", Unit=self.UNIT_POWER_CONTROL , TypeName="Selector Switch", Switchtype=18, Image=12,
+            Domoticz.Device(Name="Source", Unit=self.UNIT_POWER_CONTROL, TypeName="Selector Switch", Switchtype=18,
+                            Image=12,
                             Options=Options).Create()
             Domoticz.Log("Devices created.")
 
@@ -201,7 +203,7 @@ class BasePlugin:
         if (self.isConnected == True):
             if Parameters["Mode6"] == "Debug":
                 Domoticz.Log("Devices are connected - Initialisation")
-            UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 Available')
+            UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 ON')
             self.EnigmaDetails()
             UpdateDevice(self.UNIT_POWER_CONTROL, 40, '40')
 
@@ -219,64 +221,61 @@ class BasePlugin:
             self.isConnected = False
         s.close()
         if Parameters["Mode6"] == "Debug":
-            Domoticz.Log("isAlive status :" + str(self.isConnected))
+            Domoticz.Log("isAlive status: " + str(self.isConnected))
 
         return
 
     def EnigmaDetails(self):
-        urll = 'http://'+str(Parameters["Address"])+'/web/about'
         username = str(Parameters["Mode1"])
         password = str(Parameters["Mode2"])
-        # create a password manager
-        passman = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        # Add the username and password.
-        # If we knew the realm, we could use it instead of None.
-        passman.add_password(None, urll, username, password)
-
-        authhandler = urllib.request.HTTPBasicAuthHandler(passman)
-        # create "opener" (OpenerDirector instance)
-        opener = urllib.request.build_opener(authhandler)
-        # use the opener to fetch a URL
-        pagehandle = opener.open(urll)
-        data = pagehandle.read()
-        pagehandle.close()
+        url = "http://"
+        if username and password:
+            url += username + ':' + password + '@'
+        url += str(Parameters["Address"]) + '/web/about'
+        if Parameters["Mode6"] == "Debug":
+            Domoticz.Log("Connect via wget to website: " + url)
+        data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
         data = xmltodict.parse(data)
         data = data["e2abouts"]["e2about"]
-        for x in data.keys():
-            Domoticz.Log(str(x) + " => " + str(data[x]))
+        if Parameters["Mode6"] == "Debug":
+            for x in data.keys():
+                Domoticz.Log(str(x) + " => " + str(data[x]))
+        else:
+            if data["e2model"] and data["e2enigmaversion"]:
+                Domoticz.Log('Connected to Enigma2: ' + data["e2enigmaversion"] + ' on model: ' + data["e2model"])
         return
 
     # executed each time we click on device thru domoticz GUI
     def onCommand(self, Unit, Command, Level, Hue):
-        Domoticz.Log("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(Level) + ", Connected: " + str(self.isConnected))
+        Domoticz.Log("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(
+            Level) + ", Connected: " + str(self.isConnected))
 
-        if Unit == self.UNIT_STATUS_REMOTE and str(Command) in self.KEY:
-            urll = 'http://'+str(Parameters["Address"])+'/web/remotecontrol?command='+str(self.KEY[str(Command)])
-        elif Unit == self.UNIT_POWER_CONTROL and int(Level) < 20:
-            urll = 'http://' + str(Parameters["Address"]) + '/web/powerstate?newstate=5'
-        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 20:
-            urll = 'http://' + str(Parameters["Address"]) + '/web/powerstate?newstate=2'
-        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 30:
-            urll = 'http://' + str(Parameters["Address"]) + '/web/powerstate?newstate=3'
-        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 40:
-            urll = 'http://' + str(Parameters["Address"]) + '/web/powerstate?newstate=4'
-        else:
-            urll = 'http://' + str(Parameters["Address"]) + '/web/message?text=onCommand%20called%20for%0AUnit' + str(Unit) + '%0AParameter%20' + str(Command) + '%0ALevel:%20' + str(Level) + '%0AConnected:%20' + str(self.isConnected)+'&type=1&timeout=3'
         username = str(Parameters["Mode1"])
         password = str(Parameters["Mode2"])
-        # create a password manager
-        passman = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        # Add the username and password.
-        # If we knew the realm, we could use it instead of None.
-        passman.add_password(None, urll, username, password)
+        url = "http://"
+        if username and password:
+            url += username + ':' + password + '@'
+        url += str(Parameters["Address"]) + '/web/'
 
-        authhandler = urllib.request.HTTPBasicAuthHandler(passman)
-        # create "opener" (OpenerDirector instance)
-        opener = urllib.request.build_opener(authhandler)
-        # use the opener to fetch a URL
-        pagehandle = opener.open(urll)
-        data = pagehandle.read()
-        pagehandle.close()
+        if Unit == self.UNIT_STATUS_REMOTE and str(Command) in self.KEY:
+            url += 'remotecontrol?command=' + str(self.KEY[str(Command)])
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) < 20:
+            url += 'powerstate?newstate=5'
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 20:
+            url += 'powerstate?newstate=2'
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 30:
+            url += 'powerstate?newstate=3'
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 40:
+            url += 'powerstate?newstate=4'
+        else:
+            url += 'message?text=onCommand%20called%20for%0AUnit' + str(Unit) + '%0AParameter%20' + str(
+                Command) + '%0ALevel:%20' + str(Level) + '%0AConnected:%20' + str(
+                self.isConnected) + '&type=1&timeout=3'
+            url = "\'" + url + "\'"
+
+        if Parameters["Mode6"] == "Debug":
+            Domoticz.Log("Connect via wget to website: " + url)
+        data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
         data = xmltodict.parse(data)
         if Parameters["Mode6"] == "Debug":
             Domoticz.Log(str(data))
@@ -286,33 +285,26 @@ class BasePlugin:
         Domoticz.Log("onHeartbeat called")
         self.isAlive()
         if (self.isConnected == True):
-            urll = 'http://' + str(Parameters["Address"]) + '/web/powerstate?'
             username = str(Parameters["Mode1"])
             password = str(Parameters["Mode2"])
-            # create a password manager
-            passman = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-            # Add the username and password.
-            # If we knew the realm, we could use it instead of None.
-            passman.add_password(None, urll, username, password)
-
-            authhandler = urllib.request.HTTPBasicAuthHandler(passman)
-            # create "opener" (OpenerDirector instance)
-            opener = urllib.request.build_opener(authhandler)
-            # use the opener to fetch a URL
-            pagehandle = opener.open(urll)
-            data = pagehandle.read()
-            pagehandle.close()
+            url = "http://"
+            if username and password:
+                url += username + ':' + password + '@'
+            url += str(Parameters["Address"]) + '/web/powerstate?'
+            if Parameters["Mode6"] == "Debug":
+                Domoticz.Log("Connect via wget to website: " + url)
+            data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
             data = xmltodict.parse(data)
             data = str(data["e2powerstate"]["e2instandby"])
             if Parameters["Mode6"] == "Debug":
-                Domoticz.Log('data["e2powerstate"]["e2instandby"] => '+str(data))
+                Domoticz.Log('data["e2powerstate"]["e2instandby"] => ' + str(data))
             if data == "false":
                 UpdateDevice(self.UNIT_POWER_CONTROL, 40, '40')
             else:
                 UpdateDevice(self.UNIT_POWER_CONTROL, 10, '10')
-            UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 Available')
+            UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 ON')
         else:
-            UpdateDevice(self.UNIT_STATUS_REMOTE, 0, 'Enigma2 offline')
+            UpdateDevice(self.UNIT_STATUS_REMOTE, 0, 'Enigma2 OFF')
             UpdateDevice(self.UNIT_POWER_CONTROL, 0, '0')
         return True
 

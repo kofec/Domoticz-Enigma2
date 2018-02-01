@@ -1,48 +1,55 @@
 #!/usr/bin/python3
-import urllib.request
+import argparse
+import subprocess
 import sys
+import os
+import time
 from pathlib import Path
 
-pathOfPackages='/usr/local/lib/python3.5/dist-packages'
+pathOfPackages = '/usr/local/lib/python3.5/dist-packages'
+
+parser = argparse.ArgumentParser(description='Comunicate with Enigma2.')
+parser.add_argument('IPaddress', help='IP address of Enigma2')
+parser.add_argument('--user', help='Username to login to')
+parser.add_argument('--password', help='Password to login to')
+
+args = parser.parse_args()
+print(args)
+print("Current paths where search for modules: " + str(sys.path))
 
 if Path(pathOfPackages).exists():
-    sys.path.append('/usr/local/lib/python3.5/dist-packages')
+    print("Adding path: " + pathOfPackages)
+    sys.path.append(pathOfPackages)
     import xmltodict
 else:
-    Print("It can be an issue with import package xmltodict")
-    Print("Find where is located package xmltodict and correct variable:")
-    Print("pathOfPackages:", pathOfPackages)
+    print("It can be an issue with import package xmltodict")
+    print("Find where is located package xmltodict and correct variable: pathOfPackages")
+    print("pathOfPackages:", pathOfPackages)
     import xmltodict
 
-addressIP = "127.0.0.1"
-username = ""
-password = ""
+addressIP = args.IPaddress
+username = args.user
+password = args.password
 
-#print(len(sys.argv))
-if len(sys.argv) == 2:
-    print("Usage: python " + sys.argv[0] + " IPaddress user password")
-    print('Number of arguments:', len(sys.argv), 'arguments.')
-    print('Argument List:', str(sys.argv))
-    print('Ony IP arguments provide so admin and password are empty')
-    addressIP = str(sys.argv[1])
-    print("address IP:", addressIP)
-    print("username:", username)
-    print("password:", password)
-elif len(sys.argv) != 4:
-    print("Usage: python " + sys.argv[0] + " IPaddress user password")
-    print('Number of arguments:', len(sys.argv), 'arguments.')
-    print('Argument List:', str(sys.argv))
-    print('No all arguments provide so take these from script')
-    print("address IP:", addressIP)
-    print("username:", username)
-    print("password:", password)
-else:
-     addressIP = str(sys.argv[1])
-     username = str(sys.argv[2])
-     password = str(sys.argv[3])
-     print("address IP:", addressIP)
-     print("username:", username)
-     print("password:", password)
+try:
+    subprocess.call(["bash", "--version"])
+except OSError as e:
+    if e.errno == os.errno.ENOENT:
+        print("Cannot find wget command")
+        exit()
+    else:
+        print("Error when checking if wget exist")
+        raise
+
+try:
+    subprocess.call(["wget", "--version"])
+except OSError as e:
+    if e.errno == os.errno.ENOENT:
+        print("Cannot find wget command")
+        exit()
+    else:
+        print("Error when checking if wget exist")
+        raise
 
 '''
 Base on website: https://dream.reichholf.net/wiki/Enigma2:WebInterface
@@ -60,93 +67,61 @@ Requests:
     4 = Wakeup form Standby
     5 = Standby
 '''
-urll = 'http://' + addressIP + '/web/about'
-# create a password manager
-passman = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-# Add the username and password.
-# If we knew the realm, we could use it instead of None.
-passman.add_password(None, urll, username, password)
-
-authhandler = urllib.request.HTTPBasicAuthHandler(passman)
-# create "opener" (OpenerDirector instance)
-opener = urllib.request.build_opener(authhandler)
-# use the opener to fetch a URL
-pagehandle = opener.open(urll)
-
-data = pagehandle.read()
-pagehandle.close()
-print (data)
-
+print("Read data about tuner with Enigma2: ")
+url = "http://"
+if username and password:
+    url += username + ':' + password + '@'
+url += addressIP + '/web/about'
+print("Connect via wget to website: wget -q -O - " + url)
+data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
+print(data)
 data = xmltodict.parse(data)
 data = data["e2abouts"]["e2about"]
 for x in data.keys():
-    print(str(x) +" => " + str(data[x]))
+    print(str(x) + " => " + str(data[x]))
 print(data)
-
-urll = 'http://' + addressIP + '/web/powerstate?'
-# create a password manager
-passman = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-# Add the username and password.
-# If we knew the realm, we could use it instead of None.
-passman.add_password(None, urll, username, password)
-
-authhandler = urllib.request.HTTPBasicAuthHandler(passman)
-# create "opener" (OpenerDirector instance)
-opener = urllib.request.build_opener(authhandler)
-# use the opener to fetch a URL
-pagehandle = opener.open(urll)
-
-data = pagehandle.read()
-pagehandle.close()
+print("check power state: ")
+url = "http://"
+if username and password:
+    url += username + ':' + password + '@'
+url += addressIP + '/web/powerstate?'
+print("Connect via wget to website: wget -q -O - " + url)
+data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
 print(data)
 
 data = xmltodict.parse(data)
 data = data["e2powerstate"]
 print(data)
 
-#urll = 'http://' + addressIP + '/web/powerstate?newstate=5'
-passman.add_password(None, urll, username, password)
-
-authhandler = urllib.request.HTTPBasicAuthHandler(passman)
-# create "opener" (OpenerDirector instance)
-opener = urllib.request.build_opener(authhandler)
-# use the opener to fetch a URL
-pagehandle = opener.open(urll)
-
-data = pagehandle.read()
-pagehandle.close()
-print (data)
-
-urll = 'http://192.168.1.41/web/powerstate?'
-# create a password manager
-passman = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-# Add the username and password.
-# If we knew the realm, we could use it instead of None.
-passman.add_password(None, urll, username, password)
-
-authhandler = urllib.request.HTTPBasicAuthHandler(passman)
-# create "opener" (OpenerDirector instance)
-opener = urllib.request.build_opener(authhandler)
-# use the opener to fetch a URL
-pagehandle = opener.open(urll)
-
-data = pagehandle.read()
-pagehandle.close()
-print (data)
-
+url = "http://"
+if username and password:
+    url += username + ':' + password + '@'
+url += addressIP + '/web/powerstate?newstate=4'
+print("Wakeup form Standby: ")
+print("Connect via wget to website: wget -q -O - " + url)
+data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
+print(data)
+print("Wait 5 seconds")
+time.sleep(5)
+url = "http://"
+if username and password:
+    url += username + ':' + password + '@'
+url += addressIP + '/web/'
+url += 'message?text=Domoticz%20plugin%20test%0AYour%20Tuner%20will%0Abe%20off%20in%205%20seconds&type=1&timeout=5'
+url = "\'" + url + "\'"
+print("Connect via wget to website: wget -q -O - " + url)
+data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
+print(data)
+print("Wait 5 seconds")
+time.sleep(5)
+url = "http://"
+if username and password:
+    url += username + ':' + password + '@'
+url += addressIP + '/web/powerstate?newstate=5'
+print("Standby: ")
+print("Connect via wget to website: wget -q -O - " + url)
+data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
+print(data)
 data = xmltodict.parse(data)
 print(data)
-
-#urll = 'http://' + addressIP + '/web/powerstate?newstate=4'
-passman.add_password(None, urll, username, password)
-
-authhandler = urllib.request.HTTPBasicAuthHandler(passman)
-# create "opener" (OpenerDirector instance)
-opener = urllib.request.build_opener(authhandler)
-# use the opener to fetch a URL
-pagehandle = opener.open(urll)
-
-data = pagehandle.read()
-pagehandle.close()
-print (data)
 
