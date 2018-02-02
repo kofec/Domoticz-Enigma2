@@ -13,8 +13,28 @@ A Python plugin for Domoticz to control Enigma2 tuner
 cd YOUR_DOMOTICZ_PATH/plugins
 git clone https://github.com/kofec/Domoticz-Enigma2
 ```
+First use script "tinycontrol.py" to verify if you have needed python modules
+e.g: 
+```
+ ./enigma2.py 192.168.1.1
+ ./enigma2.py -h
+usage: enigma2.py [-h] [--user USER] [--password PASSWORD] IPaddress
+
+Comunicate with Enigma2.
+
+positional arguments:
+  IPaddress            IP address of Enigma2
+
+optional arguments:
+  -h, --help           show this help message and exit
+  --user USER          Username to login to
+  --password PASSWORD  Password to login to
+```
+* check where modules was installed and in file plugin.py find and correct below variable if needed
+pathOfPackages = '/usr/local/lib/python3.5/dist-packages'
+
 Restart Domoticz
-* Go to Setup > Hardware and create new Hardware with type: Domoticz-Enigma2
+* Go to Setup > Hardware and create new Hardware with type: Enigma2 with Kodi Remote
 * Enter name (it's up to you), user name and password if define. If not leave it blank
 
 ## Update
