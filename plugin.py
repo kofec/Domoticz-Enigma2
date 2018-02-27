@@ -1,13 +1,13 @@
 #           Enigma2 Python Plugin for Domoticz
 #
 #           keys code :  https://dream.reichholf.net/wiki/Enigma2:WebInterface
-#           Dev. Platform : Win10 x64 & Py 3.5.3 x86
+#           Dev. Platform : Raspberry Pi 1 & Py 3.5.3 Arm
 #
 #           Author:     kofec, 2017
 #           1.0.0:  initial release
 #           2.0.0:  Added Remote control Kodi like (customizable)
 #           2.0.1:  clean code and change to wget
-#
+#           3.0.0:  add support for channel name
 #       
 #           Base on website: https://dream.reichholf.net/wiki/Enigma2:WebInterface
 #           Miscellaneous
@@ -77,12 +77,18 @@
 # Below is what will be displayed in Domoticz GUI under HW
 #
 """
-<plugin key="Enigma2" name="Enigma2 with Kodi Remote" author="kofec" version="2.0.1" wikilink="no" externallink=" https://dream.reichholf.net/wiki/Enigma2:WebInterface">
+<plugin key="Enigma2" name="Enigma2 with Kodi Remote" author="kofec" version="3.0.0" wikilink="no" externallink=" https://dream.reichholf.net/wiki/Enigma2:WebInterface">
     <params>
         <param field="Address" label="IP Address" width="200px" required="true" default="127.0.0.1"/>
         <param field="Port" label="Port" width="40px" required="true" default="80"/>
         <param field="Mode1" label="Username" width="200px" required="false" default=""/>
         <param field="Mode2" label="Password" width="200px" required="false" default=""/>
+        <param field="Mode5" label="Store Channel Name" width="75px">
+            <options>
+                <option label="Yes" value="StoreChannelName"/>
+                <option label="No" value="NoStoreChannelName"  default="No" />
+            </options>
+        </param>
         <param field="Mode6" label="Debug" width="75px">
             <options>
                 <option label="True" value="Debug"/>
@@ -245,6 +251,26 @@ class BasePlugin:
                 Domoticz.Log('Connected to Enigma2: ' + data["e2enigmaversion"] + ' on model: ' + data["e2model"])
         return
 
+    def ChannelName(self):
+        username = str(Parameters["Mode1"])
+        password = str(Parameters["Mode2"])
+        url = "http://"
+        if username and password:
+            url += username + ':' + password + '@'
+        url += str(Parameters["Address"]) + '/web/subservices'
+        if Parameters["Mode6"] == "Debug":
+            Domoticz.Log("Connect via wget to website: " + url)
+        data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
+        data = xmltodict.parse(data)
+        data = data["e2servicelist"]["e2service"]
+        if Parameters["Mode6"] == "Debug":
+            for x in data.keys():
+                Domoticz.Log(str(x) + " => " + str(data[x]))
+        else:
+            if data["e2servicename"]:
+                Domoticz.Log('Current channel: ' + data["e2servicename"])
+        return data["e2servicename"]
+
     # executed each time we click on device thru domoticz GUI
     def onCommand(self, Unit, Command, Level, Hue):
         Domoticz.Log("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(
@@ -300,9 +326,13 @@ class BasePlugin:
                 Domoticz.Log('data["e2powerstate"]["e2instandby"] => ' + str(data))
             if data == "false":
                 UpdateDevice(self.UNIT_POWER_CONTROL, 40, '40')
+                if Parameters["Mode5"] == "StoreChannelName":
+                    UpdateDevice(self.UNIT_STATUS_REMOTE, 1, str(self.ChannelName()))
+                else:
+                    UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 ON')
             else:
                 UpdateDevice(self.UNIT_POWER_CONTROL, 10, '10')
-            UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 ON')
+                UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 ON')
         else:
             UpdateDevice(self.UNIT_STATUS_REMOTE, 0, 'Enigma2 OFF')
             UpdateDevice(self.UNIT_POWER_CONTROL, 0, '0')
