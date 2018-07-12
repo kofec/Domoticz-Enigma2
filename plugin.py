@@ -110,7 +110,7 @@ import subprocess
 #
 from pathlib import Path
 
-pathOfPackages = '/usr/local/lib/python3.5/dist-packages'
+pathOfPackages = '/usr/lib/python3.6/site-packages/'
 
 if Path(pathOfPackages).exists():
     sys.path.append(pathOfPackages)
