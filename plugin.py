@@ -105,22 +105,12 @@ import sys
 import os
 import socket
 import subprocess
-
-# Python framework in Domoticz do not include OS dependent path
-#
-from pathlib import Path
-
-pathOfPackages = '/usr/lib/python3.6/site-packages/'
-
-if Path(pathOfPackages).exists():
-    sys.path.append(pathOfPackages)
-    import xmltodict
-else:
-    Domoticz.Log("It can be an issue with import package xmltodict")
-    Domoticz.Log("Find where is located package xmltodict and correct variable: pathOfPackages")
-    Domoticz.Log("pathOfPackages:", pathOfPackages)
-    import xmltodict
-
+import site
+path=''
+path=site.getsitepackages()
+for i in path:
+    sys.path.append(i)
+import xmltodict
 socket.setdefaulttimeout(2)
 
 
