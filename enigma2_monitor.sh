@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/sh +x
 #
 # Copyright (C) 2018
 #
@@ -71,6 +71,7 @@ watchcat_ping_only() {
 		time_diff="$((time_now-time_lastcheck_withhost))"
 		if [ "$time_diff" -ge "$AcceptableFailureTime" ]; then
 			if ping -c 4 "$addressInternet" &> /dev/null
+			then
 				RecoveryAction "1"
 			else
 				RecoveryAction "0"
