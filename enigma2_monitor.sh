@@ -10,6 +10,7 @@ addressInternet=8.8.8.8 # address internet
 addressServer=google.pl # address server
 
 periodSuccess=60 			#How often we should check if the host is ping-able in seconds when previous success 
+					#Other acction will be served with the same period
 periodFailure=5 			#How often we should check if the host is ping-able in seconds when previous fail
 AcceptableFailureTime=90	#How long server can be unavailable before take action 
 
@@ -45,8 +46,8 @@ watchcat_ping_only() {
 		time_now="${time_now%%.*}"
 		time_diff="$((time_now-time_lastcheck))"
 
-		[ "$time_diff" -lt "$pingperiod" ] && {
-			sleep_time="$((pingperiod-time_diff))"
+		[ "$time_diff" -lt "$periodSuccess" ] && {
+			sleep_time="$((periodSuccess-time_diff))"
 			sleep "$sleep_time"
 		}
 
@@ -64,7 +65,7 @@ watchcat_ping_only() {
 		fi
 
 		time_diff="$((time_now-time_lastcheck_withhost))"
-		if [ "$time_diff" -ge "$period" ]; then
+		if [ "$time_diff" -ge "$AcceptableFailureTime" ]; then
 			if ping -c 4 "$addressInternet" &> /dev/null
 				RecoveryAction "1"
 			else
