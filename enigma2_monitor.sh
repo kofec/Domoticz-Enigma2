@@ -5,14 +5,18 @@
 # This is free software, licensed under the GNU General Public License v2.
 #
 # initial Version
+# TO DO:
+# add support to display on TV only when STB is in active mode
+# fan speed base on disk temperature
+# report to domoticz: disk temp, disk state (active, idle), fan speed,
+
 
 addressInternet=8.8.8.8 # address internet
 addressServer=google.pl # address server
 
 periodSuccess=60 			#How often we should check if the host is ping-able in seconds when previous success 
 					#Other acction will be served with the same period
-periodFailure=5 			#How often we should check if the host is ping-able in seconds when previous fail
-AcceptableFailureTime=90	#How long server can be unavailable before take action 
+AcceptableFailureTime=90		#How long server can be unavailable before take action in seconds
 
 
 RecoveryAction() {
@@ -32,7 +36,7 @@ watchcat_always() {
 }
 
 watchcat_ping_only() {
-	local periodSuccess="$1"; local periodFailure="$2"; local AcceptableFailureTime="$3"; local addressServer="$4"; local addressInternet="$5"
+	local periodSuccess="$1"; local AcceptableFailureTime="$2"; local addressServer="$3"; local addressInternet="$4"
 
 	time_now="$(cat /proc/uptime)"
 	time_now="${time_now%%.*}"
@@ -79,5 +83,5 @@ watchcat_ping_only() {
 	then
 		watchcat_always "$2" "$3"
 	else
-		watchcat_ping_only "$periodSuccess" "$periodFailure" "$AcceptableFailureTime" "$addressServer" "$addressInternet"
+		watchcat_ping_only "$periodSuccess" "$AcceptableFailureTime" "$addressServer" "$addressInternet"
 	fi
