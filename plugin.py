@@ -110,13 +110,28 @@ path=''
 path=site.getsitepackages()
 for i in path:
     sys.path.append(i)
-import xmltodict
-socket.setdefaulttimeout(2)
 
+# Python framework in Domoticz do not include OS dependent path
+#
+from pathlib import Path
+
+pathOfPackages = '/usr/lib/python3.6/site-packages/'
+
+if Path(pathOfPackages).exists():
+    sys.path.append(pathOfPackages)
+
+try:
+    import xmltodict
+except ImportError:
+    pass
+
+socket.setdefaulttimeout(2)
 
 class BasePlugin:
     # Connection Status
     isConnected = False
+    isXmltodict = False
+
     KEY = {
         #             : 116,    # Key "Power"
         #             : 2,      # Key "1"
@@ -162,13 +177,21 @@ class BasePlugin:
 
     # Executed once at HW creation/ update. Can create up to 255 devices.
     def onStart(self):
+        
         if Parameters["Mode6"] == "Debug":
             Domoticz.Debugging(1)
-            DumpConfigToLog()
-
+            DumpAllToLog()
         # Do not change below UNIT constants!
         self.UNIT_STATUS_REMOTE = 1
         self.UNIT_POWER_CONTROL = 2
+
+        try:
+            "parse" in dir(xmltodict)
+            self.isXmltodict = True
+        except Exception as e:
+            print(e)
+            self.isXmltodict = False
+            pass
 
         if (len(Devices) == 0):
             Domoticz.Device(Name="Status", Unit=self.UNIT_STATUS_REMOTE, Type=17, Image=2, Switchtype=17).Create()
@@ -181,7 +204,7 @@ class BasePlugin:
                             Image=12,
                             Options=Options).Create()
             Domoticz.Log("Devices created.")
-
+            Domoticz.Log(str(sys.modules))
         Domoticz.Heartbeat(60)
 
         self.config = {
@@ -205,8 +228,8 @@ class BasePlugin:
 
         return True
 
-    # Check if Samsung TV is On and connected to Network
-    # Need to do in this way as TV accept connection and disconnect immediately
+    # Check if Enigma TV is On and connected to Network
+
     def isAlive(self):
         socket.setdefaulttimeout(1)
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -218,7 +241,10 @@ class BasePlugin:
         s.close()
         if Parameters["Mode6"] == "Debug":
             Domoticz.Log("isAlive status: " + str(self.isConnected))
-
+            Domoticz.Log("isXmltodict status: " + str(self.isXmltodict))
+            if(not self.isXmltodict):
+                Domoticz.Error("Missing module xmltodict - correct pathOfPackages in plugin.py")
+                self.isConnected = False
         return
 
     def EnigmaDetails(self):
@@ -395,27 +421,55 @@ def onHeartbeat():
     _plugin.onHeartbeat()
 
 
-# Generic helper functions
-def DumpConfigToLog():
+# from plugin https://github.com/Xorfor/Domoticz-PiMonitor-Plugin/blob/master/plugin.py
+def DumpDevicesToLog():
+    # Show devices
+    Domoticz.Debug("Device count.........: {}".format(len(Devices)))
+    for x in Devices:
+        Domoticz.Debug("Device...............: {} - {}".format(x, Devices[x]))
+        Domoticz.Debug("Device Idx...........: {}".format(Devices[x].ID))
+        Domoticz.Debug(
+            "Device Type..........: {} / {}".format(Devices[x].Type, Devices[x].SubType))
+        Domoticz.Debug("Device Name..........: '{}'".format(Devices[x].Name))
+        Domoticz.Debug("Device nValue........: {}".format(Devices[x].nValue))
+        Domoticz.Debug("Device sValue........: '{}'".format(Devices[x].sValue))
+        Domoticz.Debug(
+            "Device Options.......: '{}'".format(Devices[x].Options))
+        Domoticz.Debug("Device Used..........: {}".format(Devices[x].Used))
+        Domoticz.Debug(
+            "Device ID............: '{}'".format(Devices[x].DeviceID))
+        Domoticz.Debug("Device LastLevel.....: {}".format(
+            Devices[x].LastLevel))
+        Domoticz.Debug("Device Image.........: {}".format(Devices[x].Image))
+
+
+def DumpImagesToLog():
+    # Show images
+    Domoticz.Debug("Image count..........: {}".format((len(Images))))
+    for x in Images:
+        Domoticz.Debug("Image '{}'...: '{}'".format(x, Images[x]))
+
+
+def DumpParametersToLog():
+    # Show parameters
+    Domoticz.Debug("Parameters count.....: {}".format(len(Parameters)))
     for x in Parameters:
         if Parameters[x] != "":
-            Domoticz.Debug("'" + x + "':'" + str(Parameters[x]) + "'")
-    Domoticz.Debug("Settings count: " + str(len(Settings)))
+            Domoticz.Debug("Parameter '{}'...: '{}'".format(x, Parameters[x]))
+
+
+def DumpSettingsToLog():
+    # Show settings
+    Domoticz.Debug("Settings count.......: {}".format(len(Settings)))
     for x in Settings:
-        Domoticz.Debug("'" + x + "':'" + str(Settings[x]) + "'")
-    Domoticz.Debug("Image count: " + str(len(Images)))
-    for x in Images:
-        Domoticz.Debug("'" + x + "':'" + str(Images[x]) + "'")
-    Domoticz.Debug("Device count: " + str(len(Devices)))
-    for x in Devices:
-        Domoticz.Debug("Device:           " + str(x) + " - " + str(Devices[x]))
-        Domoticz.Debug("Device ID:       '" + str(Devices[x].ID) + "'")
-        Domoticz.Debug("Device Name:     '" + Devices[x].Name + "'")
-        Domoticz.Debug("Device nValue:    " + str(Devices[x].nValue))
-        Domoticz.Debug("Device sValue:   '" + Devices[x].sValue + "'")
-        Domoticz.Debug("Device LastLevel: " + str(Devices[x].LastLevel))
-        Domoticz.Debug("Device Image:     " + str(Devices[x].Image))
-    return
+        Domoticz.Debug("Setting '{}'...: '{}'".format(x, Settings[x]))
+
+
+def DumpAllToLog():
+    DumpDevicesToLog()
+    DumpImagesToLog()
+    DumpParametersToLog()
+    DumpSettingsToLog()
 
 
 def UpdateDevice(Unit, nValue, sValue):
