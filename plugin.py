@@ -204,7 +204,6 @@ class BasePlugin:
                             Image=12,
                             Options=Options).Create()
             Domoticz.Log("Devices created.")
-            Domoticz.Log(str(sys.modules))
         Domoticz.Heartbeat(60)
 
         self.config = {
@@ -241,7 +240,6 @@ class BasePlugin:
         s.close()
         if Parameters["Mode6"] == "Debug":
             Domoticz.Log("isAlive status: " + str(self.isConnected))
-            Domoticz.Log("isXmltodict status: " + str(self.isXmltodict))
             if(not self.isXmltodict):
                 Domoticz.Error("Missing module xmltodict - correct pathOfPackages in plugin.py")
                 self.isConnected = False
@@ -250,10 +248,14 @@ class BasePlugin:
     def EnigmaDetails(self):
         username = str(Parameters["Mode1"])
         password = str(Parameters["Mode2"])
+        port = str(Parameters["Port"])
         url = "http://"
         if username and password:
             url += username + ':' + password + '@'
-        url += str(Parameters["Address"]) + '/web/about'
+        if port == "80":
+            url += str(Parameters["Address"]) + '/web/about'
+        else:
+            url += str(Parameters["Address"]) + ":" + port + '/web/about'
         if Parameters["Mode6"] == "Debug":
             Domoticz.Log("Connect via wget to website: " + url)
         data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
@@ -270,10 +272,14 @@ class BasePlugin:
     def ChannelName(self):
         username = str(Parameters["Mode1"])
         password = str(Parameters["Mode2"])
+        port = str(Parameters["Port"])
         url = "http://"
         if username and password:
             url += username + ':' + password + '@'
-        url += str(Parameters["Address"]) + '/web/subservices'
+        if port == "80":
+            url += str(Parameters["Address"]) + '/web/subservices'
+        else:
+            url += str(Parameters["Address"]) + ":" + port + '/web/subservices'
         if Parameters["Mode6"] == "Debug":
             Domoticz.Log("Connect via wget to website: " + url)
         data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
@@ -294,10 +300,14 @@ class BasePlugin:
 
         username = str(Parameters["Mode1"])
         password = str(Parameters["Mode2"])
+        port = str(Parameters["Port"])
         url = "http://"
         if username and password:
             url += username + ':' + password + '@'
-        url += str(Parameters["Address"]) + '/web/'
+        if port == "80":
+            url += str(Parameters["Address"]) + '/web/'
+        else:
+            url += str(Parameters["Address"]) + ":" + port + '/web/'
 
         if Unit == self.UNIT_STATUS_REMOTE and str(Command) in self.KEY:
             url += 'remotecontrol?command=' + str(self.KEY[str(Command)])
@@ -329,10 +339,14 @@ class BasePlugin:
         if (self.isConnected == True):
             username = str(Parameters["Mode1"])
             password = str(Parameters["Mode2"])
+            port = str(Parameters["Port"])
             url = "http://"
             if username and password:
                 url += username + ':' + password + '@'
-            url += str(Parameters["Address"]) + '/web/powerstate?'
+            if port == "80":
+                url += str(Parameters["Address"]) + '/web/powerstate?'
+            else:
+                url += str(Parameters["Address"]) + ":" + port + '/web/powerstate?'
             if Parameters["Mode6"] == "Debug":
                 Domoticz.Log("Connect via wget to website: " + url)
             data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])

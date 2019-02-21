@@ -10,6 +10,7 @@ pathOfPackages = '/usr/local/lib/python3.5/dist-packages'
 
 parser = argparse.ArgumentParser(description='Comunicate with Enigma2.')
 parser.add_argument('IPaddress', help='IP address of Enigma2')
+parser.add_argument('--port', help='Port number')
 parser.add_argument('--user', help='Username to login to')
 parser.add_argument('--password', help='Password to login to')
 
@@ -30,6 +31,7 @@ else:
 addressIP = args.IPaddress
 username = args.user
 password = args.password
+port = args.port
 
 try:
     subprocess.call(["bash", "--version"])
@@ -71,7 +73,10 @@ print("Read data about tuner with Enigma2: ")
 url = "http://"
 if username and password:
     url += username + ':' + password + '@'
-url += addressIP + '/web/about'
+if port:
+    url += addressIP + ":" + port + '/web/about'
+else:
+    url += addressIP + '/web/about'
 print("Connect via wget to website: wget -q -O - " + url)
 data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
 print(data)
@@ -84,7 +89,10 @@ print("check power state: ")
 url = "http://"
 if username and password:
     url += username + ':' + password + '@'
-url += addressIP + '/web/powerstate?'
+if port:
+    url += addressIP + ":" + port + '/web/powerstate?'
+else:
+    url += addressIP + '/web/powerstate?'
 print("Connect via wget to website: wget -q -O - " + url)
 data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
 print(data)
@@ -96,7 +104,10 @@ print(data)
 url = "http://"
 if username and password:
     url += username + ':' + password + '@'
-url += addressIP + '/web/powerstate?newstate=4'
+if port:
+    url += addressIP + ":" + port + '/web/powerstate?newstate=4'
+else:
+    url += addressIP + '/web/powerstate?newstate=4'
 print("Wakeup form Standby: ")
 print("Connect via wget to website: wget -q -O - " + url)
 data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
@@ -106,7 +117,10 @@ time.sleep(5)
 url = "http://"
 if username and password:
     url += username + ':' + password + '@'
-url += addressIP + '/web/'
+if port:
+    url += addressIP + ":" + port + '/web/'
+else:
+    url += addressIP + '/web/'
 url += 'message?text=Domoticz%20plugin%20test%0AYour%20Tuner%20will%0Abe%20off%20in%205%20seconds&type=1&timeout=5'
 url = "\'" + url + "\'"
 print("Connect via wget to website: wget -q -O - " + url)
@@ -117,7 +131,10 @@ time.sleep(5)
 url = "http://"
 if username and password:
     url += username + ':' + password + '@'
-url += addressIP + '/web/powerstate?newstate=5'
+if port:
+    url += addressIP + ":" + port + '/web/powerstate?newstate=5'
+else:
+    url += addressIP + '/web/powerstate?newstate=5'
 print("Standby: ")
 print("Connect via wget to website: wget -q -O - " + url)
 data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
