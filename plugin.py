@@ -199,6 +199,7 @@ class BasePlugin:
 
         if (len(Devices) == 0):
             Domoticz.Device(Name="Status", Unit=self.UNIT_STATUS_REMOTE, Type=17, Image=2, Switchtype=17).Create()
+
             Options = {"LevelActions": "||||",
                        "LevelNames": "Off|Standby|Reboot|RestartE2|On",
                        "LevelOffHidden": "true",
@@ -318,6 +319,8 @@ class BasePlugin:
 
         if Unit == self.UNIT_STATUS_REMOTE and str(Command) in self.KEY:
             url += 'remotecontrol?command=' + str(self.KEY[str(Command)])
+        elif Unit == self.UNIT_STATUS_REMOTE and str(Command) == "Off":
+            url += 'powerstate?newstate=1'
         elif Unit == self.UNIT_POWER_CONTROL and int(Level) < 20:
             url += 'powerstate?newstate=5'
         elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 20:
