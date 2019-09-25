@@ -341,7 +341,7 @@ class BasePlugin:
         return True
 
     def onHeartbeat(self):
-        Domoticz.Log("onHeartBeat called:"+str(self.pollCount)+"/"+str(self.pollPeriod))
+        Domoticz.Debug("onHeartBeat called:"+str(self.pollCount)+"/"+str(self.pollPeriod))
         if self.pollCount >= self.pollPeriod:
             self.isAlive()
             if (self.isConnected == True):
