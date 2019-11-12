@@ -5,7 +5,9 @@ A Python plugin for Domoticz to control Enigma2 tuner
 * and script for Samsung TV: https://www.domoticz.com/wiki/Plugins/SamsungTV.html
 
 ## Installation
-
+```
+pip3 install -U xmltodict
+```
 * Make sure your Domoticz instance supports Domoticz Plugin System - see more https://www.domoticz.com/wiki/Using_Python_plugins
 
 * Get plugin data into DOMOTICZ/plugins directory
