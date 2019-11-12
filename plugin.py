@@ -345,7 +345,7 @@ class BasePlugin:
                 if Parameters["Mode6"] == "Debug":
                     Domoticz.Log(str(data))
             except subprocess.CalledProcessError as e:
-                Domoticz.Log("Something fail:\n" + e.output.decode())
+                Domoticz.Log("Something fail: " + e.output.decode())
         else:
             Domoticz.Log("Cannot execute above command")
         return True
