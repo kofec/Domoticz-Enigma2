@@ -303,44 +303,51 @@ class BasePlugin:
 
     # executed each time we click on device thru domoticz GUI
     def onCommand(self, Unit, Command, Level, Hue):
+        self.isAlive()
         Domoticz.Log("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(
             Level) + ", Connected: " + str(self.isConnected))
 
-        username = str(Parameters["Mode1"])
-        password = str(Parameters["Mode2"])
-        port = str(Parameters["Port"])
-        url = "http://"
-        if username and password:
-            url += username + ':' + password + '@'
-        if port == "80":
-            url += str(Parameters["Address"]) + '/web/'
-        else:
-            url += str(Parameters["Address"]) + ":" + port + '/web/'
+        if (self.isConnected == True):
+            username = str(Parameters["Mode1"])
+            password = str(Parameters["Mode2"])
+            port = str(Parameters["Port"])
+            url = "http://"
+            if username and password:
+                url += username + ':' + password + '@'
+            if port == "80":
+                url += str(Parameters["Address"]) + '/web/'
+            else:
+                url += str(Parameters["Address"]) + ":" + port + '/web/'
 
-        if Unit == self.UNIT_STATUS_REMOTE and str(Command) in self.KEY:
-            url += 'remotecontrol?command=' + str(self.KEY[str(Command)])
-        elif Unit == self.UNIT_STATUS_REMOTE and str(Command) == "Off":
-            url += 'powerstate?newstate=1'
-        elif Unit == self.UNIT_POWER_CONTROL and int(Level) < 20:
-            url += 'powerstate?newstate=5'
-        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 20:
-            url += 'powerstate?newstate=2'
-        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 30:
-            url += 'powerstate?newstate=3'
-        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 40:
-            url += 'powerstate?newstate=4'
-        else:
-            url += 'message?text=onCommand%20called%20for%0AUnit' + str(Unit) + '%0AParameter%20' + str(
-                Command) + '%0ALevel:%20' + str(Level) + '%0AConnected:%20' + str(
-                self.isConnected) + '&type=1&timeout=3'
-            url = "\'" + url + "\'"
+            if Unit == self.UNIT_STATUS_REMOTE and str(Command) in self.KEY:
+                url += 'remotecontrol?command=' + str(self.KEY[str(Command)])
+            elif Unit == self.UNIT_STATUS_REMOTE and str(Command) == "Off":
+                url += 'powerstate?newstate=1'
+            elif Unit == self.UNIT_POWER_CONTROL and int(Level) < 20:
+                url += 'powerstate?newstate=5'
+            elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 20:
+                url += 'powerstate?newstate=2'
+            elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 30:
+                url += 'powerstate?newstate=3'
+            elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 40:
+                url += 'powerstate?newstate=4'
+            else:
+                url += 'message?text=onCommand%20called%20for%0AUnit' + str(Unit) + '%0AParameter%20' + str(
+                    Command) + '%0ALevel:%20' + str(Level) + '%0AConnected:%20' + str(
+                    self.isConnected) + '&type=1&timeout=3'
+                url = "\'" + url + "\'"
 
-        if Parameters["Mode6"] == "Debug":
-            Domoticz.Log("Connect via wget to website: " + url)
-        data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
-        data = xmltodict.parse(data)
-        if Parameters["Mode6"] == "Debug":
-            Domoticz.Log(str(data))
+            if Parameters["Mode6"] == "Debug":
+                Domoticz.Log("Connect via wget to website: " + url)
+            try:
+                data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
+                data = xmltodict.parse(data)
+                if Parameters["Mode6"] == "Debug":
+                    Domoticz.Log(str(data))
+            except subprocess.CalledProcessError as e:
+                Domoticz.Log("Something fail:\n" + e.output.decode())
+        else:
+            Domoticz.Log("Cannot execute above command")
         return True
 
     def onHeartbeat(self):
