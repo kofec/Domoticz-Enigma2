@@ -1,4 +1,4 @@
-#!/bin/sh +x
+#!/bin/sh
 #
 # Copyright (C) 2018
 #
@@ -11,10 +11,10 @@
 # report to domoticz: disk temp, disk state (active, idle), fan speed,
 
 
-addressInternet=8.8.8.8 # address internet
-addressServer=google.pl # address server
+addressInternet="8.8.8.0" # address internet
+addressServer="google.pl" # address server
 
-periodSuccess=60 			#How often we should check if the host is ping-able in seconds when previous success 
+periodSuccess=6 			#How often we should check if the host is ping-able in seconds when previous success 
 					#Other acction will be served with the same period
 AcceptableFailureTime=90		#How long server can be unavailable before take action in seconds
 
@@ -29,13 +29,7 @@ RecoveryAction() {
 	fi
 }
 
-watchcat_always() {
-	local period="$1"; local forcedelay="$2"
-
-	sleep "$period" && shutdown_now "$forcedelay"
-}
-
-watchcat_ping_only() {
+monitor() {
 	local periodSuccess="$1"; local AcceptableFailureTime="$2"; local addressServer="$3"; local addressInternet="$4"
 
 	time_now="$(cat /proc/uptime)"
@@ -59,8 +53,7 @@ watchcat_ping_only() {
 		time_now="${time_now%%.*}"
 		time_lastcheck="$time_now"
 
-
-		if ping -c 1 "$addressServer" &> /dev/null
+		if ping -c 3 "$addressServer"
 		then
 			time_lastcheck_withhost="$time_now"
 		else
@@ -70,7 +63,7 @@ watchcat_ping_only() {
 
 		time_diff="$((time_now-time_lastcheck_withhost))"
 		if [ "$time_diff" -ge "$AcceptableFailureTime" ]; then
-			if ping -c 4 "$addressInternet" &> /dev/null
+			if ping -c 4 "$addressInternet"
 			then
 				RecoveryAction "1"
 			else
@@ -80,9 +73,5 @@ watchcat_ping_only() {
 	done
 }
 
-	if [ "$mode" = "always" ]
-	then
-		watchcat_always "$2" "$3"
-	else
-		watchcat_ping_only "$periodSuccess" "$AcceptableFailureTime" "$addressServer" "$addressInternet"
-	fi
+monitor "$periodSuccess" "$AcceptableFailureTime" "$addressServer" "$addressInternet"
+
