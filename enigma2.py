@@ -1,25 +1,27 @@
 #!/usr/bin/python3
 import argparse
-import subprocess
 import sys
-import os
 import time
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 pathOfPackages = '/usr/local/lib/python3.5/dist-packages'
 
-parser = argparse.ArgumentParser(description='Comunicate with Enigma2.')
+parser = argparse.ArgumentParser(description='Communicate with Enigma2.')
 parser.add_argument('IPaddress', help='IP address of Enigma2')
 parser.add_argument('--port', help='Port number')
 parser.add_argument('--user', help='Username to login to')
 parser.add_argument('--password', help='Password to login to')
+parser.add_argument('--timeout', type=float, default=5.0, help='HTTP timeout in seconds (default: 5.0)')
 
 args = parser.parse_args()
-print(args)
-print("Current paths where search for modules: " + str(sys.path))
+
+# Avoid dumping credentials to stdout by default
+print(f"Target: {args.IPaddress}:{args.port or '80'} user={'set' if args.user else 'unset'}")
 
 if Path(pathOfPackages).exists():
-    print("Adding path: " + pathOfPackages)
     sys.path.append(pathOfPackages)
     import xmltodict
 else:
@@ -32,26 +34,33 @@ addressIP = args.IPaddress
 username = args.user
 password = args.password
 port = args.port
+timeout = args.timeout
 
-try:
-    subprocess.call(["bash", "--version"])
-except OSError as e:
-    if e.errno == os.errno.ENOENT:
-        print("Cannot find wget command")
-        exit()
-    else:
-        print("Error when checking if wget exist")
-        raise
+def _base_url() -> str:
+    auth = ""
+    if username and password:
+        auth = f"{username}:{password}@"
+    host = f"{addressIP}:{port}" if port else addressIP
+    return f"http://{auth}{host}/web"
 
-try:
-    subprocess.call(["wget", "--version"])
-except OSError as e:
-    if e.errno == os.errno.ENOENT:
-        print("Cannot find wget command")
-        exit()
-    else:
-        print("Error when checking if wget exist")
-        raise
+def _get_xml(endpoint: str, query: dict | None = None) -> dict:
+    url = _base_url() + endpoint
+    if query:
+        url += "?" + urlencode(query, safe="%")
+    req = Request(url, headers={"User-Agent": "Domoticz-Enigma2/1.0"})
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+    except HTTPError as e:
+        raise RuntimeError(f"HTTP error {e.code} for {url}") from e
+    except URLError as e:
+        raise RuntimeError(f"Connection error for {url}: {e.reason}") from e
+
+    try:
+        return xmltodict.parse(raw)
+    except Exception as e:
+        # Keep raw out of logs by default; include size for debugging
+        raise RuntimeError(f"Failed to parse XML from {url} (bytes={len(raw)})") from e
 
 '''
 Base on website: https://dream.reichholf.net/wiki/Enigma2:WebInterface
@@ -69,76 +78,45 @@ Requests:
     4 = Wakeup form Standby
     5 = Standby
 '''
-print("Read data about tuner with Enigma2: ")
-url = "http://"
-if username and password:
-    url += username + ':' + password + '@'
-if port:
-    url += addressIP + ":" + port + '/web/about'
-else:
-    url += addressIP + '/web/about'
-print("Connect via wget to website: wget -q -O - " + url)
-data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
-print(data)
-data = xmltodict.parse(data)
-data = data["e2abouts"]["e2about"]
-for x in data.keys():
-    print(str(x) + " => " + str(data[x]))
-print(data)
-print("check power state: ")
-url = "http://"
-if username and password:
-    url += username + ':' + password + '@'
-if port:
-    url += addressIP + ":" + port + '/web/powerstate?'
-else:
-    url += addressIP + '/web/powerstate?'
-print("Connect via wget to website: wget -q -O - " + url)
-data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
-print(data)
+def main() -> int:
+    print("Read data about tuner with Enigma2:")
+    about = _get_xml("/about")
+    data = about["e2abouts"]["e2about"]
+    for k, v in data.items():
+        print(f"{k} => {v}")
 
-data = xmltodict.parse(data)
-data = data["e2powerstate"]
-print(data)
+    print("Check power state:")
+    pwr = _get_xml("/powerstate")
+    print(pwr.get("e2powerstate", pwr))
 
-url = "http://"
-if username and password:
-    url += username + ':' + password + '@'
-if port:
-    url += addressIP + ":" + port + '/web/powerstate?newstate=4'
-else:
-    url += addressIP + '/web/powerstate?newstate=4'
-print("Wakeup form Standby: ")
-print("Connect via wget to website: wget -q -O - " + url)
-data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
-print(data)
-print("Wait 5 seconds")
-time.sleep(5)
-url = "http://"
-if username and password:
-    url += username + ':' + password + '@'
-if port:
-    url += addressIP + ":" + port + '/web/'
-else:
-    url += addressIP + '/web/'
-url += 'message?text=Domoticz%20plugin%20test%0AYour%20Tuner%20will%0Abe%20off%20in%205%20seconds&type=1&timeout=5'
-url = "\'" + url + "\'"
-print("Connect via wget to website: wget -q -O - " + url)
-data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
-print(data)
-print("Wait 5 seconds")
-time.sleep(5)
-url = "http://"
-if username and password:
-    url += username + ':' + password + '@'
-if port:
-    url += addressIP + ":" + port + '/web/powerstate?newstate=5'
-else:
-    url += addressIP + '/web/powerstate?newstate=5'
-print("Standby: ")
-print("Connect via wget to website: wget -q -O - " + url)
-data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url])
-print(data)
-data = xmltodict.parse(data)
-print(data)
+    print("Wakeup from Standby:")
+    _get_xml("/powerstate", {"newstate": 4})
 
+    print("Wait 5 seconds")
+    time.sleep(5)
+
+    print("Send message:")
+    _get_xml(
+        "/message",
+        {
+            "text": "Domoticz plugin test\nYour Tuner will\nbe off in 5 seconds",
+            "type": 1,
+            "timeout": 5,
+        },
+    )
+
+    print("Wait 5 seconds")
+    time.sleep(5)
+
+    print("Standby:")
+    standby = _get_xml("/powerstate", {"newstate": 5})
+    print(standby)
+    time.sleep(5)
+    print("Check power state:")
+    pwr = _get_xml("/powerstate")
+    print(pwr.get("e2powerstate", pwr))
+
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())

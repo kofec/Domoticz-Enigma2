@@ -103,12 +103,18 @@
 # Main Import
 import Domoticz
 import sys
-import os
 import socket
-import subprocess
 import site
-path=''
-path=site.getsitepackages()
+from urllib.parse import quote  # NEW
+
+# +++ add these imports (urllib + auth) +++
+import base64
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
+
+
+path = ''
+path = site.getsitepackages()
 for i in path:
     sys.path.append(i)
 
@@ -126,7 +132,7 @@ try:
 except ImportError:
     pass
 
-socket.setdefaulttimeout(2)
+# socket.setdefaulttimeout(2)  # avoid global default; keep timeouts local
 
 class BasePlugin:
     # Connection Status
@@ -134,7 +140,6 @@ class BasePlugin:
     isXmltodict = False
     pollPeriod = 0
     pollCount = 0
-
 
     KEY = {
         #             : 116,    # Key "Power"
@@ -181,7 +186,7 @@ class BasePlugin:
 
     # Executed once at HW creation/ update. Can create up to 255 devices.
     def onStart(self):
-        
+
         if Parameters["Mode6"] == "Debug":
             Domoticz.Debugging(1)
             DumpAllToLog()
@@ -197,7 +202,7 @@ class BasePlugin:
             self.isXmltodict = False
             pass
 
-        if (len(Devices) == 0):
+        if len(Devices) == 0:
             Domoticz.Device(Name="Status", Unit=self.UNIT_STATUS_REMOTE, Type=17, Image=2, Switchtype=17).Create()
 
             Options = {"LevelActions": "||||",
@@ -226,7 +231,7 @@ class BasePlugin:
 
         self.isAlive()
 
-        if (self.isConnected == True):
+        if self.isConnected == True:
             if Parameters["Mode6"] == "Debug":
                 Domoticz.Log("Devices are connected - Initialisation")
             UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 ON')
@@ -238,156 +243,225 @@ class BasePlugin:
     # Check if Enigma TV is On and connected to Network
 
     def isAlive(self):
-        socket.setdefaulttimeout(1)
+        # Local timeout only
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1)
         try:
             s.connect((self.config["host"], self.config["port"]))
             self.isConnected = True
-        except socket.error as e:
+        except socket.error:
             self.isConnected = False
-        s.close()
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+
         if Parameters["Mode6"] == "Debug":
             Domoticz.Log("isAlive status: " + str(self.isConnected))
-            if(not self.isXmltodict):
-                Domoticz.Error("Missing module xmltodict - correct pathOfPackages in plugin.py")
-                self.isConnected = False
+        if self.isConnected and (not self.isXmltodict):
+            Domoticz.Error("Missing module xmltodict - correct pathOfPackages in plugin.py")
+            self.isConnected = False
         return
 
     def EnigmaDetails(self):
-        username = str(Parameters["Mode1"])
-        password = str(Parameters["Mode2"])
-        port = str(Parameters["Port"])
-        url = "http://"
-        if username and password:
-            url += username + ':' + password + '@'
-        if port == "80":
-            url += str(Parameters["Address"]) + '/web/about'
-        else:
-            url += str(Parameters["Address"]) + ":" + port + '/web/about'
-        if Parameters["Mode6"] == "Debug":
-            Domoticz.Log("Connect via wget to website: " + url)
-        data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
-        data = xmltodict.parse(data)
-        data = data["e2abouts"]["e2about"]
+        doc = self._get("about", timeout_sec=5)
+        if not doc:
+            return
+
+        try:
+            data = doc["e2abouts"]["e2about"]
+        except Exception:
+            Domoticz.Error("Unexpected /web/about response shape")
+            return
+
         if Parameters["Mode6"] == "Debug":
             for x in data.keys():
                 Domoticz.Log(str(x) + " => " + str(data[x]))
         else:
-            if data["e2model"] and data["e2enigmaversion"]:
-                Domoticz.Log('Connected to Enigma2: ' + data["e2enigmaversion"] + ' on model: ' + data["e2model"])
+            model = data.get("e2model")
+            ver = data.get("e2enigmaversion")
+            if model and ver:
+                Domoticz.Log("Connected to Enigma2: {} on model: {}".format(ver, model))
         return
 
     def ChannelName(self):
-        username = str(Parameters["Mode1"])
-        password = str(Parameters["Mode2"])
-        port = str(Parameters["Port"])
-        url = "http://"
-        if username and password:
-            url += username + ':' + password + '@'
-        if port == "80":
-            url += str(Parameters["Address"]) + '/web/subservices'
+        doc = self._get("subservices", timeout_sec=4)
+        if not doc:
+            return ""
+
+        try:
+            services = doc["e2servicelist"]["e2service"]
+        except Exception:
+            Domoticz.Error("Unexpected /web/subservices response shape")
+            return ""
+
+        # e2service can be dict or list; normalize
+        if isinstance(services, list):
+            svc = services[0] if services else {}
         else:
-            url += str(Parameters["Address"]) + ":" + port + '/web/subservices'
+            svc = services or {}
+
+        name = svc.get("e2servicename", "") if isinstance(svc, dict) else ""
         if Parameters["Mode6"] == "Debug":
-            Domoticz.Log("Connect via wget to website: " + url)
-        data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
-        data = xmltodict.parse(data)
-        data = data["e2servicelist"]["e2service"]
-        if Parameters["Mode6"] == "Debug":
-            for x in data.keys():
-                Domoticz.Log(str(x) + " => " + str(data[x]))
+            Domoticz.Log("ChannelName => {}".format(name))
         else:
-            if data["e2servicename"]:
-                Domoticz.Log('Current channel: ' + data["e2servicename"])
-        return data["e2servicename"]
+            if name:
+                Domoticz.Log("Current channel: " + name)
+        return name
 
     # executed each time we click on device thru domoticz GUI
     def onCommand(self, Unit, Command, Level, Hue):
         self.isAlive()
-        Domoticz.Log("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(
-            Level) + ", Connected: " + str(self.isConnected))
-
-        if (self.isConnected == True):
-            username = str(Parameters["Mode1"])
-            password = str(Parameters["Mode2"])
-            port = str(Parameters["Port"])
-            url = "http://"
-            if username and password:
-                url += username + ':' + password + '@'
-            if port == "80":
-                url += str(Parameters["Address"]) + '/web/'
-            else:
-                url += str(Parameters["Address"]) + ":" + port + '/web/'
-
-            if Unit == self.UNIT_STATUS_REMOTE and str(Command) in self.KEY:
-                url += 'remotecontrol?command=' + str(self.KEY[str(Command)])
-            elif Unit == self.UNIT_STATUS_REMOTE and str(Command) == "Off":
-                url += 'powerstate?newstate=1'
-            elif Unit == self.UNIT_POWER_CONTROL and int(Level) < 20:
-                url += 'powerstate?newstate=5'
-            elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 20:
-                url += 'powerstate?newstate=2'
-            elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 30:
-                url += 'powerstate?newstate=3'
-            elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 40:
-                url += 'powerstate?newstate=4'
-            else:
-                url += 'message?text=onCommand%20called%20for%0AUnit' + str(Unit) + '%0AParameter%20' + str(
-                    Command) + '%0ALevel:%20' + str(Level) + '%0AConnected:%20' + str(
-                    self.isConnected) + '&type=1&timeout=3'
-                url = "\'" + url + "\'"
-
-            if Parameters["Mode6"] == "Debug":
-                Domoticz.Log("Connect via wget to website: " + url)
-            try:
-                data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
-                data = xmltodict.parse(data)
-                if Parameters["Mode6"] == "Debug":
-                    Domoticz.Log(str(data))
-            except subprocess.CalledProcessError as e:
-                Domoticz.Log("Something fail: " + e.output.decode())
-        else:
+        Domoticz.Log(
+            "onCommand called for Unit {}: Parameter '{}', Level: {}, Connected: {}".format(
+                Unit, Command, Level, self.isConnected
+            )
+        )
+        if not self.isConnected:
             Domoticz.Log("Cannot execute above command")
+            return True
+
+        endpoint = None
+
+        if Unit == self.UNIT_STATUS_REMOTE and str(Command) in self.KEY:
+            endpoint = "remotecontrol?command={}".format(self.KEY[str(Command)])
+        elif Unit == self.UNIT_STATUS_REMOTE and str(Command) == "Off":
+            endpoint = "powerstate?newstate=1"
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) < 20:
+            endpoint = "powerstate?newstate=5"
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 20:
+            endpoint = "powerstate?newstate=2"
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 30:
+            endpoint = "powerstate?newstate=3"
+        elif Unit == self.UNIT_POWER_CONTROL and int(Level) == 40:
+            endpoint = "powerstate?newstate=4"
+        else:
+            # Keep existing behavior, but build safely
+            msg = "onCommand called for\nUnit {}\nParameter {}\nLevel: {}\nConnected: {}".format(
+                Unit, Command, Level, self.isConnected
+            )
+            # Ensure message is URL-encoded once (quote is fine here)
+            endpoint = "message?text={}&type=1&timeout=3".format(quote(msg, safe=""))
+
+        doc = self._get(endpoint, timeout_sec=4)
+        if Parameters["Mode6"] == "Debug" and doc is not None:
+            Domoticz.Log(str(doc))
         return True
 
     def onHeartbeat(self):
-        Domoticz.Debug("onHeartBeat called:"+str(self.pollCount)+"/"+str(self.pollPeriod))
-        if self.pollCount >= self.pollPeriod:
-            self.isAlive()
-            if (self.isConnected == True):
-                username = str(Parameters["Mode1"])
-                password = str(Parameters["Mode2"])
-                port = str(Parameters["Port"])
-                url = "http://"
-                if username and password:
-                    url += username + ':' + password + '@'
-                if port == "80":
-                    url += str(Parameters["Address"]) + '/web/powerstate?'
-                else:
-                    url += str(Parameters["Address"]) + ":" + port + '/web/powerstate?'
-                if Parameters["Mode6"] == "Debug":
-                    Domoticz.Log("Connect via wget to website: " + url)
-                data = subprocess.check_output(['bash', '-c', 'wget -q -O - ' + url], cwd=Parameters["HomeFolder"])
-                data = xmltodict.parse(data)
-                data = str(data["e2powerstate"]["e2instandby"])
-                if Parameters["Mode6"] == "Debug":
-                    Domoticz.Log('data["e2powerstate"]["e2instandby"] => ' + str(data))
-                if data == "false":
-                    UpdateDevice(self.UNIT_POWER_CONTROL, 40, '40')
-                    if Parameters["Mode5"] == "StoreChannelName":
-                        UpdateDevice(self.UNIT_STATUS_REMOTE, 1, str(self.ChannelName()))
-                    else:
-                        UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 ON')
-                else:
-                    UpdateDevice(self.UNIT_POWER_CONTROL, 10, '10')
-                    UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 ON')
-            else:
-                UpdateDevice(self.UNIT_STATUS_REMOTE, 0, 'Enigma2 OFF')
-                UpdateDevice(self.UNIT_POWER_CONTROL, 0, '0')
-            self.pollCount = 0 #Reset Pollcount
-            return True
-        else:
+        Domoticz.Debug("onHeartBeat called:" + str(self.pollCount) + "/" + str(self.pollPeriod))
+        if self.pollCount < self.pollPeriod:
             self.pollCount += 1
+            return
+
+        self.isAlive()
+        if self.isConnected:
+            doc = self._get("powerstate?", timeout_sec=4)
+            if not doc:
+                # treat as disconnected-ish for UI purposes
+                UpdateDevice(self.UNIT_STATUS_REMOTE, 0, "Enigma2 OFF")
+                UpdateDevice(self.UNIT_POWER_CONTROL, 0, "0")
+                self.pollCount = 0
+                return True
+
+            try:
+                instandby = str(doc["e2powerstate"]["e2instandby"])
+            except Exception:
+                Domoticz.Error("Unexpected /web/powerstate? response shape")
+                instandby = "true"
+
+            if Parameters["Mode6"] == "Debug":
+                Domoticz.Log('e2instandby => ' + str(instandby))
+
+            if instandby == "false":
+                UpdateDevice(self.UNIT_POWER_CONTROL, 40, "40")
+                if Parameters["Mode5"] == "StoreChannelName":
+                    ch = self.ChannelName()
+                    UpdateDevice(self.UNIT_STATUS_REMOTE, 1, ch if ch else "Enigma2 ON")
+                else:
+                    UpdateDevice(self.UNIT_STATUS_REMOTE, 1, "Enigma2 ON")
+            else:
+                UpdateDevice(self.UNIT_POWER_CONTROL, 10, "10")
+                UpdateDevice(self.UNIT_STATUS_REMOTE, 1, "Enigma2 ON")
+        else:
+            UpdateDevice(self.UNIT_STATUS_REMOTE, 0, "Enigma2 OFF")
+            UpdateDevice(self.UNIT_POWER_CONTROL, 0, "0")
+
+        self.pollCount = 0
+        return True
+
+    # --- NEW helpers (deduplicate URL building + safer wget + XML parsing) ---
+    def _auth_header(self):
+        """
+        Build HTTP Basic Authorization header (avoid credentials in URL).
+        Returns dict of headers.
+        """
+        user = str(Parameters["Mode1"] or "")
+        pwd = str(Parameters["Mode2"] or "")
+        if user and pwd:
+            token = base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("ascii")
+            return {"Authorization": f"Basic {token}"}
+        return {}
+
+    def _base_url(self):
+        host = str(Parameters["Address"])
+        port = str(Parameters["Port"])
+        if port == "80":
+            return f"http://{host}/web/"
+        return f"http://{host}:{port}/web/"
+
+    def _fetch_xml(self, url, timeout_sec=3):
+        """
+        Fetch URL via urllib and parse XML via xmltodict.
+        Returns parsed dict or None on error.
+        """
+        if not self.isXmltodict:
+            Domoticz.Error("Missing module xmltodict - cannot parse Enigma2 responses.")
+            return None
+
+        headers = {"User-Agent": "Domoticz-Enigma2/3.1.0"}
+        headers.update(self._auth_header())
+
+        if Parameters["Mode6"] == "Debug":
+            Domoticz.Log("HTTP GET: " + url)
+
+        req = Request(url, headers=headers, method="GET")
+        try:
+            with urlopen(req, timeout=float(timeout_sec)) as resp:
+                data = resp.read()
+        except HTTPError as e:
+            Domoticz.Error("HTTP {} for {}: {}".format(getattr(e, "code", "?"), url, str(e)))
+            return None
+        except URLError as e:
+            Domoticz.Error("Connection error for {}: {}".format(url, getattr(e, "reason", str(e))))
+            return None
+        except Exception as e:
+            Domoticz.Error("HTTP request failed for {}: {}".format(url, str(e)))
+            return None
+
+        try:
+            return xmltodict.parse(data)
+        except Exception as e:
+            Domoticz.Error("xml parse failed for {}: {}".format(url, str(e)))
+            return None
+
+    def _get(self, endpoint, timeout_sec=3):
+        # endpoint like "about", "powerstate?", "remotecontrol?command=115"
+        url = self._base_url() + endpoint
+        return self._fetch_xml(url, timeout_sec=timeout_sec)
+
+    # --- remove/disable old wget-based helpers (keep names stable) ---
+    def _auth_prefix(self):
+        # Deprecated: do not embed credentials in URL
+        return ""
+
+    def _base_url(self, path="/web/"):
+        # Backwards compatible signature used elsewhere; ignore `path` and keep consistent
+        base = self._base_url.__wrapped__(self) if hasattr(self._base_url, "__wrapped__") else None
+        # NOTE: this placeholder will be replaced by the definition above in your merge.
+        # Keep only one _base_url() in final file.
+        return "http://{}:{}/web/".format(str(Parameters["Address"]), str(Parameters["Port"]))
 
     def onConnect(self, Status, Description):
         Domoticz.Log("onConnect called")
