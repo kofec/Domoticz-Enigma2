@@ -1,0 +1,81 @@
+# /root/nbox_monitor.conf - ustawienia nbox_monitor.sh dla JEDNEGO boxa.
+#
+# Wzor: skopiuj, popraw i wgraj na box jako /root/nbox_monitor.conf.
+# Sourcuje go busybox ash - bez spacji wokol "=", tekst ze spacjami
+# w cudzyslowach. Wszystko jest opcjonalne; bez tego pliku monitor pracuje
+# lokalnie (logi w /tmp, incydenty na /hdd), pokazuje STOP/LOCK na ekranie
+# i pilnuje sieci.
+#
+# Na boxie potrzebne sa tylko dwa pliki:
+#   /root/nbox_monitor.sh   z obsluga Domoticza w srodku
+#   /root/nbox_sygnal.py    sygnal z tunera; bez niego nie ma LOCK (ani
+#                           komunikatu o braku sygnalu z satelity), sily
+#                           sygnalu, a SNR jest tylko z OpenWebifu co 60 s
+#
+# Sprawdzenie po wgraniu (nic nie zapisuje ani nie wysyla):
+#   sh /root/nbox_monitor.sh --raz
+
+# Kto to jest - idzie w temat powiadomien: "nBox Salon: obraz stoi - ...".
+# Domyslnie hostname, a ten na nBoxach bywa jednakowy.
+NAZWA="nBox Salon"
+
+# --- Domoticz ----------------------------------------------------------------
+# Bez DOMOTICZ_HOST (albo z 127.0.0.1 - na nBoxie nie ma Domoticza) nic nie
+# idzie do Domoticza. Powiadomienia dzialaja od razu, bez zakladania
+# urzadzen. Domoticz musi wpuszczac adres boxa bez hasla (Setup > Settings >
+# Local Networks).
+#DOMOTICZ_HOST=192.168.1.100
+#DOMOTICZ_PORT=8080
+
+# idx urzadzen - liczby z Domoticza; puste = bez pomiaru. Najprosciej przez
+# plugin Domoticz-Enigma2 >= 3.2.0: w sprzecie "nBox monitor devices: Yes",
+# a plugin zaklada urzadzenia i wypisuje w logu Domoticza gotowa linie
+# "nbox_monitor.conf: DZ_ZDARZENIE=... DZ_SNR=..." - wklej ja tutaj bez
+# przedrostka. Bez pluginu: urzadzenia wirtualne (Dummy), typ w komentarzu.
+#DZ_ZDARZENIE=   # Text - ostatnie zdarzenie
+#DZ_SNR=         # Percentage - min SNR z okna REPORT
+#DZ_SILA=        # Percentage - min sila sygnalu (tylko z nbox_sygnal.py)
+#DZ_BER=         # Custom sensor - max surowy BER (skala zalezy od transpondera)
+#DZ_ECM=         # Custom sensor, ms - max czas odpowiedzi na ECM
+#DZ_BLEDY=       # Custom sensor - linie bledow oscama w oknie
+#DZ_ROOTFS=      # Percentage - zajetosc / (NAND)
+#DZ_HDD=         # Percentage - zajetosc /hdd
+#DZ_RAM=         # Percentage - RAM zajety przez procesy
+#DZ_CPU=         # Percentage - CPU, srednia z REPORT s
+#DZ_HDD_TEMP=    # Temperature - dysk, gdy sie kreci, najwyzej co HDD_TEMP_CO s
+
+# Co ile sekund wartosci zbiorcze i zasoby do Domoticza.
+#REPORT=60
+# Minimalny odstep powiadomien jednego rodzaju (s).
+#NOTIFY_GAP=600
+# Temperatura dysku: co ile s, gdy sie kreci (uspionego smartctl nie budzi).
+#HDD_TEMP_CO=1800
+
+# --- Ekran telewizora --------------------------------------------------------
+# Zdarzenia pokazywane ogladajacemu, oddzielone spacja; TV_TYPY="" wylacza.
+# Do wyboru: STOP LOCK CZYTNIK WEBIF SYGNAL OBRAZ. OBRAZ zapala sie tez
+# na radiu i kanalach spoza pakietu, a CZYTNIK przy ogladaniu i tak konczy
+# sie STOP - dlatego domyslnie ich nie ma.
+#TV_TYPY="STOP LOCK"
+#TV_GAP=600     # s miedzy komunikatami
+#TV_CZAS=20     # s na ekranie
+#TV_TYP=1       # okno enigmy: 1 informacja, 2 ostrzezenie, 3 blad
+
+# --- Siec --------------------------------------------------------------------
+# Ping tylko wtedy, gdy czytnik oscama traci polaczenie: do bramy (z trasy
+# default) i do PING_INTERNET, do tego stan klienta DHCP. Akcja: klient DHCP
+# od nowa albo restart sieci; restart boxa po REBOOT_PO s bez bramy albo
+# internetu. NAPRAWA=0 wylacza wszystkie zmiany na boxie.
+#NAPRAWA=1
+#NAPRAWA_PO=40        # s problemu czytnika do pierwszej diagnozy
+#NAPRAWA_CO=120       # s miedzy diagnozami
+#REBOOT_PO=3600       # 0 = nigdy
+#PING_INTERNET="8.8.8.8 1.1.1.1"
+#SIEC_DEV=eth0
+#DHCP=auto            # auto / 1 / 0; auto: tak, gdy przy starcie dziala udhcpc
+# Drugi, staly adres na SIEC_DEV - np. box za relayd, niedostepny pod
+# adresem z DHCP; dodawany z powrotem, gdy zniknie:
+#RELAY_ADDRESS="192.168.50.2/24"
+# Trasy przywracane po restarcie sieci, "siec,brama" oddzielone spacja -
+# np. do sieci VPN przez inny router niz brama domyslna:
+#TRASY="10.8.0.0/24,192.168.1.3"
