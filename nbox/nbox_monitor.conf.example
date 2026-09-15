@@ -62,8 +62,8 @@ NAZWA="nBox Salon"
 #TV_TYP=1       # okno enigmy: 1 informacja, 2 ostrzezenie, 3 blad
 
 # --- Siec --------------------------------------------------------------------
-# Ping tylko wtedy, gdy czytnik oscama traci polaczenie: do bramy (z trasy
-# default) i do PING_INTERNET, do tego stan klienta DHCP. Akcja: klient DHCP
+# Ping tylko wtedy, gdy zaden czytnik oscama nie jest polaczony: do bramy
+# (z trasy default) i do PING_INTERNET, do tego stan klienta DHCP. Akcja: klient DHCP
 # od nowa albo restart sieci; restart boxa po REBOOT_PO s bez bramy albo
 # internetu. NAPRAWA=0 wylacza wszystkie zmiany na boxie.
 #NAPRAWA=1

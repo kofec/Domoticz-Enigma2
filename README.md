@@ -107,9 +107,11 @@ is only a fallback, because it runs inside the enigma2 process.
 - **Logs**: samples and events in RAM (`/tmp/nbox_monitor/`), incident files
   with the context before and after on `/hdd/nbox_monitor/` - only for `STOP`,
   `LOCK` and `CZYTNIK`, so the disk is not woken up otherwise.
-- **Network repair** - no pinging while everything works. When the OSCam
-  reader has been disconnected for 40 s, the script pings the default gateway
-  and an internet address (`8.8.8.8`, `1.1.1.1`) and checks the DHCP client:
+- **Network repair** - no pinging while everything works. When no OSCam
+  reader has been connected for 40 s (control words from any reader mean the
+  network works, even if another reader is down), the script pings the
+  default gateway and an internet address (`8.8.8.8`, `1.1.1.1`) and checks
+  the DHCP client:
 
   | Diagnosis | Action |
   |---|---|

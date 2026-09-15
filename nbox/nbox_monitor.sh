@@ -36,7 +36,10 @@
 #              UNKNOWN sie nie liczy, gdy tuner nie pracuje i nie ma ruchu
 #              ECM - oscam laczy newcamd dopiero przy pierwszym ECM, wiec po
 #              restarcie oscama bezczynny czytnik tak wlasnie wyglada.
-#              CZYTNIK-OK po powrocie.
+#              CZYTNIK-OK po powrocie. Przy kilku czytnikach zdarzenie mowi,
+#              ile innych jest polaczonych; naprawa sieci i przyczyna "brak
+#              polaczenia z serwerem kart" dopiero, gdy nie ma zadnego -
+#              klucze z innego czytnika znacza, ze siec dziala.
 #   OSCAM-NIECZYTELNY  webif oscama odpowiedzial, ale bez starttime - stan
 #              z poprzedniej probki zostaje, zadnych wnioskow (wczesniej
 #              takie odpowiedzi dawaly falszywe incydenty CZYTNIK); pierwsza
@@ -55,8 +58,9 @@
 #              obraz stoi przez caly jej start.
 #   SIEC       adres RELAY_ADDRESS albo trasa z TRASY zniknely (restart sieci,
 #              odnowienie DHCP) i zostaly dodane z powrotem.
-#   NAPRAWA    czytnik bez polaczenia od NAPRAWA_PO s: wynik diagnozy (brama,
-#              internet, klient DHCP) i podjeta akcja - patrz sekcja Siec.
+#   NAPRAWA    od NAPRAWA_PO s zaden czytnik nie jest polaczony: wynik
+#              diagnozy (brama, internet, klient DHCP) i podjeta akcja -
+#              patrz sekcja Siec.
 #   REBOOT     siec (brama albo internet) nie wrocila przez REBOOT_PO s -
 #              restart boxa.
 #
@@ -641,8 +645,10 @@ incydent_koniec() {
 # --- Siec -------------------------------------------------------------------
 #
 # Poprzedni monitor pingowal serwer kart co 15 s, na okraglo. Tu diagnoza
-# rusza dopiero, gdy czytnik oscama przestaje byc CONNECTED - stan czytnika
-# mowi o polaczeniu z serwerem kart wiecej niz ping. Wtedy ping do bramy
+# rusza dopiero, gdy zaden czytnik oscama nie jest CONNECTED - stan
+# czytnikow mowi o polaczeniu z serwerami kart wiecej niz ping, a klucze
+# z jednego znacza, ze siec dziala, nawet gdy drugi lezy (na jednym boxie
+# newcamd ze starym adresem IP obok dzialajacego cccam). Wtedy ping do bramy
 # (z trasy default) i do PING_INTERNET oraz stan klienta DHCP wybieraja akcje:
 #   DHCP, a klient nie dziala albo brama nie odpowiada -> klient DHCP od nowa
 #   bez DHCP, brama nie odpowiada                    -> restart sieci
@@ -742,7 +748,7 @@ restart_boxa() {
 
 naprawa_ost=""; siec_zla_od=""
 naprawa_krok() {
-    if [ -z "$czyt_od" ] || [ "$czyt_zgloszony" -ne 1 ]; then
+    if [ -z "$czyt_od" ] || [ "$czyt_zgloszony" -ne 1 ] || [ "$czyt_ok" -gt 0 ]; then
         naprawa_ost=""; siec_zla_od=""
         return 0
     fi
@@ -782,7 +788,10 @@ opis_krotki() {
     case "$1" in
         STOP)    echo "obraz stoi - nie przychodza klucze" ;;
         LOCK)    echo "brak sygnalu z satelity" ;;
-        CZYTNIK) echo "brak polaczenia z serwerem kart" ;;
+        CZYTNIK)
+            if [ "$czyt_ok" -gt 0 ]; then echo "czytnik bez polaczenia, inne dzialaja"
+            else echo "brak polaczenia z serwerem kart"
+            fi ;;
         ENIGMA)  echo "enigma2 uruchomiona ponownie" ;;
         WEBIF)
             case "$2" in
@@ -824,7 +833,7 @@ tv_tresc() {
         STOP)
             _rada="Poczekaj - obraz powinien wrocic sam."
             if [ -z "$os" ]; then _p="program oscam w dekoderze nie odpowiada"
-            elif [ -n "$czyt_problem" ]; then _p="brak polaczenia z serwerem kart"
+            elif [ -n "$czyt_problem" ] && [ "$czyt_ok" -eq 0 ]; then _p="brak polaczenia z serwerem kart"
             elif [ "${n_drop:-0}" -gt 0 ]; then
                 # tak konczy sie skok zegara (ZEGAR): do zmiany kanalu
                 _p="dekoder odrzuca klucze"; _rada="Zmien kanal i wroc."
@@ -914,7 +923,7 @@ raport() {
 ostatnia_linia=""; e2p_pop=""
 os_start_pop=""; webif_pop=""; zegar_zgloszony=""
 os_start=""; dvb_sid=""; czytniki=""; kanal=""; os_ok=0
-czyt_zle=0; czyt_zgloszony=0; czyt_ostatnie_ok=""; czyt_problem=""; czyt_od=""
+czyt_zle=0; czyt_zgloszony=0; czyt_ostatnie_ok=""; czyt_problem=""; czyt_od=""; czyt_ok=0
 tuner_pop=""; sid_pop=""; zmiana_od=0; stoi_od=""; sid_stop=""
 obraz_od=""; obraz_zly=0; snr_zly=0; ber_zly=0; lock_zly=0; sygnal_ost=0
 
@@ -1010,6 +1019,8 @@ przebieg() {
     # CZYTNIK - tylko z czytelnej odpowiedzi i dopiero po 2 probkach z rzedu.
     # UNKNOWN przy braku ruchu ECM to czytnik, ktory jeszcze sie nie laczyl.
     if [ "$os_ok" -eq 1 ]; then
+        # ile czytnikow jest polaczonych - klucze z ktoregokolwiek = siec dziala
+        czyt_ok=$(printf '%s' "$czytniki" | tr ',' '\n' | grep -c '=CONNECTED$')
         if [ -z "$czytniki" ]; then
             czyt_problem="brak czytnikow"
         else
@@ -1024,7 +1035,7 @@ przebieg() {
             [ -n "$czyt_od" ] || czyt_od="$up"
             if [ "$czyt_zle" -ge 2 ] && [ "$czyt_zgloszony" -eq 0 ]; then
                 czyt_zgloszony=1
-                zdarzenie CZYTNIK "${czyt_ostatnie_ok:-?} -> $czyt_problem (od $czyt_zle probek)"
+                zdarzenie CZYTNIK "${czyt_ostatnie_ok:-?} -> $czyt_problem (od $czyt_zle probek, polaczonych: $czyt_ok)"
             fi
         else
             czyt_zle=0; czyt_od=""
@@ -1159,7 +1170,7 @@ dekoder      tuner: $([ "$tuner" -eq 1 ] && echo pracuje || echo standby)  (enig
 sygnal       $([ -n "$zrodlo" ] && echo "lock=${lock:--}  SNR=${snr:--}%  sila=${sila:--}%  BER=${ber:--}  (zrodlo: $zrodlo)" || echo "brak odczytu - tuner nie pracuje, OpenWebif nie pytany")
 oscam        $([ -z "$os" ] && echo "NIE ODPOWIADA" || { [ "$os_ok" -eq 1 ] && echo odpowiada || echo "odpowiada NIECZYTELNIE (bez starttime)"; })  start=${os_start:-?}
   dvbapi     SID=${dvb_sid:--}  kanal=${kanal:--}
-  czytniki   ${czytniki:--}  -> $([ -n "$czyt_problem" ] && echo "problem: $czyt_problem (CZYTNIK dopiero po 2 probkach)" || echo "ok (linii ecm: $n_ecm)")
+  czytniki   ${czytniki:--}  -> $([ -n "$czyt_problem" ] && echo "problem: $czyt_problem (CZYTNIK dopiero po 2 probkach; polaczonych: $czyt_ok - $([ "$czyt_ok" -gt 0 ] && echo bez naprawy sieci || echo naprawa sieci po NAPRAWA_PO s))" || echo "ok (linii ecm: $n_ecm)")
 ecm.info     $([ -n "$ecm_wiek" ] && echo "${ecm_wiek}s temu" || echo "brak pliku")
 log          linii: $n_nowe, bledow: $n_err, w tym dropping ECM: $n_drop, max czas ECM: ${ecm_ms} ms
 incydent     $([ -n "$inc_nowy" ] && echo "powstalby plik zdarzenie_..._${inc_nowy}.log" || echo "nie (brak zdarzenia z: $INCYDENT_TYPY)")
