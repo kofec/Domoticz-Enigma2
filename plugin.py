@@ -8,6 +8,8 @@
 #           2.0.0:  Added Remote control Kodi like (customizable)
 #           2.0.1:  clean code and change to wget
 #           3.0.0:  add support for channel name
+#           3.2.0:  address as host[:port]; the Port field became the switch for
+#                   nBox monitor devices (values pushed by nbox_monitor.sh)
 #       
 #           Base on website: https://dream.reichholf.net/wiki/Enigma2:WebInterface
 #           Miscellaneous
@@ -77,29 +79,34 @@
 # Below is what will be displayed in Domoticz GUI under HW
 #
 """
-<plugin key="Enigma2" name="Enigma2 with Kodi Remote" author="kofec" version="3.1.0" wikilink="no" externallink=" https://dream.reichholf.net/wiki/Enigma2:WebInterface">
+<plugin key="Enigma2" name="Enigma2 with Kodi Remote" author="kofec" version="3.2.0" wikilink="no" externallink=" https://dream.reichholf.net/wiki/Enigma2:WebInterface">
     <params>
-        <param field="Address" label="IP Address" width="200px" required="true" default="127.0.0.1"/>
-        <param field="Port" label="Port" width="40px" required="true" default="80"/>
+        <param field="Address" label="IP Address[:Port]" width="200px" required="true" default="127.0.0.1"/>
+        <param field="Port" label="nBox monitor devices" width="75px">
+            <options>
+                <option label="No" value="1" default="true"/>
+                <option label="Yes" value="2"/>
+            </options>
+        </param>
         <param field="Mode1" label="Username" width="200px" required="false" default=""/>
         <param field="Mode2" label="Password" width="200px" required="false" default=""/>
         <param field="Mode3" label="Poll Period (* 10s)" width="75px" required="true" default="6"/>
         <param field="Mode4" label="Deepstandby supported ?" width="75px">
             <options>
                 <option label="Yes" value="DeepstandbySupported"/>
-                <option label="No" value="DeepstandbyNotSupported"  default="No" />
+                <option label="No" value="DeepstandbyNotSupported" default="true"/>
             </options>
         </param>
         <param field="Mode5" label="Store Channel Name" width="75px">
             <options>
                 <option label="Yes" value="StoreChannelName"/>
-                <option label="No" value="NoStoreChannelName"  default="No" />
+                <option label="No" value="NoStoreChannelName" default="true"/>
             </options>
         </param>
         <param field="Mode6" label="Debug" width="75px">
             <options>
                 <option label="True" value="Debug"/>
-                <option label="False" value="Normal"  default="True" />
+                <option label="False" value="Normal" default="true"/>
             </options>
         </param>
     </params>
@@ -139,6 +146,45 @@ except ImportError:
     pass
 
 # socket.setdefaulttimeout(2)  # avoid global default; keep timeouts local
+
+# Since 3.2.0 the "Port" field is the nBox monitor switch (Domoticz stores it
+# as an integer, hence numbers) and the web interface port goes into the
+# address field as host:port.
+MONITOR_OFF = "1"
+MONITOR_ON = "2"
+
+# Extra units for nbox_monitor.sh - a script running on the box that pushes
+# its values here with JSON udevice. The plugin only creates them and never
+# updates them. Unit, name, device definition, variable in nbox_monitor.conf.
+MONITOR_UNITS = (
+    (3, "Last event", {"TypeName": "Text"}, "DZ_ZDARZENIE"),
+    (4, "SNR", {"TypeName": "Percentage"}, "DZ_SNR"),
+    (5, "Signal", {"TypeName": "Percentage"}, "DZ_SILA"),
+    (6, "BER", {"TypeName": "Custom", "Options": {"Custom": "1;"}}, "DZ_BER"),
+    (7, "ECM time", {"TypeName": "Custom", "Options": {"Custom": "1;ms"}}, "DZ_ECM"),
+    (8, "OSCam errors", {"TypeName": "Custom", "Options": {"Custom": "1;"}}, "DZ_BLEDY"),
+    (9, "Root FS", {"TypeName": "Percentage"}, "DZ_ROOTFS"),
+    (10, "HDD usage", {"TypeName": "Percentage"}, "DZ_HDD"),
+    (11, "RAM", {"TypeName": "Percentage"}, "DZ_RAM"),
+    (12, "CPU", {"TypeName": "Percentage"}, "DZ_CPU"),
+    (13, "HDD temperature", {"TypeName": "Temperature"}, "DZ_HDD_TEMP"),
+)
+
+
+def parse_address(address, port_field):
+    """(host, port) from "host[:port]". Before 3.2.0 the port had its own
+    field; such a value (anything but the monitor switch) is still used until
+    the hardware is saved again with the new form. 0 is what Domoticz stores
+    when the form sends an old port (80) that matches no option."""
+    address = str(address).strip()
+    host, sep, port = address.rpartition(":")
+    if sep and port.isdigit():
+        return host, int(port)
+    port_field = str(port_field)
+    if port_field.isdigit() and port_field not in ("0", MONITOR_OFF, MONITOR_ON):
+        return address, int(port_field)
+    return address, 80
+
 
 class BasePlugin:
     # Connection Status
@@ -228,15 +274,19 @@ class BasePlugin:
         self.pollCount = self.pollPeriod - 1
         Domoticz.Heartbeat(10)
 
+        host, port = parse_address(Parameters["Address"], Parameters["Port"])
         self.config = {
             "description": "Domoticz",
             "user": Parameters["Mode1"],
             "password": Parameters["Mode2"],
-            "host": Parameters["Address"],
-            "port": int(Parameters["Port"]),
+            "host": host,
+            "port": port,
         }
 
-        Domoticz.Log("Connecting to: " + Parameters["Address"] + ":" + Parameters["Port"])
+        if Parameters["Port"] == MONITOR_ON:
+            self.createMonitorDevices()
+
+        Domoticz.Log("Connecting to: {}:{}".format(host, port))
 
         self.isAlive()
 
@@ -248,6 +298,18 @@ class BasePlugin:
             UpdateDevice(self.UNIT_POWER_CONTROL, 40, '40')
 
         return True
+
+    # Units for nbox_monitor.sh. Created only when missing, never removed -
+    # switching the option off keeps the devices and their history.
+    def createMonitorDevices(self):
+        for unit, name, spec, _ in MONITOR_UNITS:
+            if unit not in Devices:
+                Domoticz.Device(Name=name, Unit=unit, Used=1, **spec).Create()
+                Domoticz.Log("nBox monitor device created: " + name)
+        # One line ready to paste into /root/nbox_monitor.conf on the box
+        conf = " ".join("{}={}".format(var, Devices[unit].ID)
+                        for unit, _, _, var in MONITOR_UNITS if unit in Devices)
+        Domoticz.Log("nbox_monitor.conf: " + conf)
 
     # Check if Enigma TV is On and connected to Network
 
@@ -414,9 +476,9 @@ class BasePlugin:
         return {}
 
     def _base_url(self):
-        host = str(Parameters["Address"])
-        port = str(Parameters["Port"])
-        if port == "80":
+        host = self.config["host"]
+        port = self.config["port"]
+        if port == 80:
             return f"http://{host}/web/"
         return f"http://{host}:{port}/web/"
 
@@ -429,7 +491,7 @@ class BasePlugin:
             Domoticz.Error("Missing module xmltodict - cannot parse Enigma2 responses.")
             return None
 
-        headers = {"User-Agent": "Domoticz-Enigma2/3.1.0"}
+        headers = {"User-Agent": "Domoticz-Enigma2/3.2.0"}
         headers.update(self._auth_header())
 
         if Parameters["Mode6"] == "Debug":
