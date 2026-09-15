@@ -84,6 +84,12 @@
         <param field="Mode1" label="Username" width="200px" required="false" default=""/>
         <param field="Mode2" label="Password" width="200px" required="false" default=""/>
         <param field="Mode3" label="Poll Period (* 10s)" width="75px" required="true" default="6"/>
+        <param field="Mode4" label="Deepstandby supported ?" width="75px">
+            <options>
+                <option label="Yes" value="DeepstandbySupported"/>
+                <option label="No" value="DeepstandbyNotSupported"  default="No" />
+            </options>
+        </param>
         <param field="Mode5" label="Store Channel Name" width="75px">
             <options>
                 <option label="Yes" value="StoreChannelName"/>
@@ -205,9 +211,12 @@ class BasePlugin:
         if len(Devices) == 0:
             Domoticz.Device(Name="Status", Unit=self.UNIT_STATUS_REMOTE, Type=17, Image=2, Switchtype=17).Create()
 
+            # Show "Off" level only when deepstandby is supported (Mode4 == DeepstandbySupported)
+            levelOffHidden = "true" if Parameters["Mode4"] == "DeepstandbyNotSupported" else "false"
+
             Options = {"LevelActions": "||||",
                        "LevelNames": "Off|Standby|Reboot|RestartE2|On",
-                       "LevelOffHidden": "true",
+                       "LevelOffHidden": levelOffHidden,
                        "SelectorStyle": "0"
                        }
             Domoticz.Device(Name="Source", Unit=self.UNIT_POWER_CONTROL, TypeName="Selector Switch", Switchtype=18,
@@ -326,7 +335,7 @@ class BasePlugin:
 
         if Unit == self.UNIT_STATUS_REMOTE and str(Command) in self.KEY:
             endpoint = "remotecontrol?command={}".format(self.KEY[str(Command)])
-        elif Unit == self.UNIT_STATUS_REMOTE and str(Command) == "Off":
+        elif Unit in (self.UNIT_STATUS_REMOTE, self.UNIT_POWER_CONTROL) and str(Command) == "Off":
             endpoint = "powerstate?newstate=1"
         elif Unit == self.UNIT_POWER_CONTROL and int(Level) < 20:
             endpoint = "powerstate?newstate=5"
@@ -434,7 +443,27 @@ class BasePlugin:
             Domoticz.Error("HTTP {} for {}: {}".format(getattr(e, "code", "?"), url, str(e)))
             return None
         except URLError as e:
-            Domoticz.Error("Connection error for {}: {}".format(url, getattr(e, "reason", str(e))))
+            # Enigma2 can drop the connection when starting shutdown (DeepStandby)
+            reason = getattr(e, "reason", "")
+            is_poweroff = ("powerstate?newstate=1" in url)
+
+            if is_poweroff and (
+                "Remote end closed connection without response" in str(e)
+                or "Remote end closed connection without response" in str(reason)
+                or isinstance(reason, (ConnectionResetError, BrokenPipeError))
+            ):
+                # Treat as success-ish: shutdown was likely accepted
+                Domoticz.Log("Enigma2 shutdown: connection closed early (expected): {}".format(url))
+                return {"e2powerstate": {"e2result": "True", "e2resulttext": "shutdown-connection-closed"}}
+
+            Domoticz.Error("Connection error for {}: {}".format(url, reason if reason else str(e)))
+            return None
+        except (ConnectionResetError, BrokenPipeError) as e:
+            # Same case as above but sometimes surfaces without URLError wrapping
+            if "powerstate?newstate=1" in url:
+                Domoticz.Log("Enigma2 shutdown: connection closed early (expected): {} ({})".format(url, str(e)))
+                return {"e2powerstate": {"e2result": "True", "e2resulttext": "shutdown-connection-closed"}}
+            Domoticz.Error("HTTP request failed for {}: {}".format(url, str(e)))
             return None
         except Exception as e:
             Domoticz.Error("HTTP request failed for {}: {}".format(url, str(e)))
@@ -455,13 +484,6 @@ class BasePlugin:
     def _auth_prefix(self):
         # Deprecated: do not embed credentials in URL
         return ""
-
-    def _base_url(self, path="/web/"):
-        # Backwards compatible signature used elsewhere; ignore `path` and keep consistent
-        base = self._base_url.__wrapped__(self) if hasattr(self._base_url, "__wrapped__") else None
-        # NOTE: this placeholder will be replaced by the definition above in your merge.
-        # Keep only one _base_url() in final file.
-        return "http://{}:{}/web/".format(str(Parameters["Address"]), str(Parameters["Port"]))
 
     def onConnect(self, Status, Description):
         Domoticz.Log("onConnect called")
