@@ -21,8 +21,9 @@
 #                  /tmp/ecm.info z dysku),
 #                - dvbapi dekoduje program, a /tmp/ecm.info jest starszy niz
 #                  ECM_STALL s.
-#              STOP-KONIEC mowi, jak sie skonczylo (CW wrocily / zmiana
-#              kanalu / standby).
+#              STOP-KONIEC mowi, jak sie skonczylo (CW wrocily, takze po
+#              restarcie oscama / zmiana kanalu / standby); znikniecie
+#              klienta dvbapi przy zamykaniu oscama STOP-u nie konczy.
 #   LOCK       tuner stracil synchronizacje z satelita (brak FE_HAS_LOCK) -
 #              obraz staje od razu, niezaleznie od oscama. LOCK-OK po powrocie.
 #   OBRAZ      tuner pracuje, a dekoder nie podaje obrazu (vmpeg xres = 0)
@@ -924,7 +925,7 @@ ostatnia_linia=""; e2p_pop=""
 os_start_pop=""; webif_pop=""; zegar_zgloszony=""
 os_start=""; dvb_sid=""; czytniki=""; kanal=""; os_ok=0
 czyt_zle=0; czyt_zgloszony=0; czyt_ostatnie_ok=""; czyt_problem=""; czyt_od=""; czyt_ok=0
-tuner_pop=""; sid_pop=""; zmiana_od=0; stoi_od=""; sid_stop=""
+tuner_pop=""; sid_pop=""; zmiana_od=0; stoi_od=""; sid_stop=""; os_start_stop=""
 obraz_od=""; obraz_zly=0; snr_zly=0; ber_zly=0; lock_zly=0; sygnal_ost=0
 
 przebieg() {
@@ -1074,6 +1075,16 @@ przebieg() {
             _stoi=1; _dlaczego="brak nowego CW od ${ecm_wiek}s"
         fi
     fi
+    # Trwajacy STOP konczy sie dopiero nowym CW albo innym kanalem. Klient
+    # dvbapi znika tez, gdy oscam sie zamyka (restart trwal ~80 s; status
+    # jest wtedy bez czytnikow), a po jego powrocie zmiana SID zeruje
+    # _spokoj - bez tego oba momenty dawaly falszywe "CW znow przychodza".
+    # Pusty SID przy czytnikach to kanal niekodowany - wtedy koniec STOP.
+    if [ "$_stoi" -eq 0 ] && [ -n "$stoi_od" ] && [ "$tuner" -eq 1 ] \
+        && { [ "$dvb_sid" = "$sid_stop" ] || { [ -z "$dvb_sid" ] && [ -z "$czytniki" ]; }; } \
+        && { [ -z "$ecm_wiek" ] || [ "$ecm_wiek" -gt "$ECM_STALL" ]; }; then
+        _stoi=1
+    fi
 
     # Sygnal: najpierw od pomocnika (ioctl, patrz nbox_sygnal.py). Swiezy =
     # nie starszy niz 3 probki. OpenWebif tylko gdy pomocnika brak.
@@ -1102,11 +1113,13 @@ przebieg() {
     fi
 
     if [ "$_stoi" -eq 1 ] && [ -z "$stoi_od" ]; then
-        stoi_od="$up"; sid_stop="$dvb_sid"
+        stoi_od="$up"; sid_stop="$dvb_sid"; os_start_stop="$os_start"
         zdarzenie STOP "$_dlaczego - ${kanal:-?}, lock ${lock:-?} SNR ${snr:-?}% BER ${ber:-?}, xres $xres, czytniki: ${czytniki:-?}"
     elif [ "$_stoi" -eq 0 ] && [ -n "$stoi_od" ]; then
         if [ "$tuner" -eq 0 ]; then _jak="standby"
         elif [ "$dvb_sid" != "$sid_stop" ] && [ -n "$dvb_sid" ]; then _jak="zmiana kanalu"
+        elif [ -z "$dvb_sid" ]; then _jak="zmiana na kanal bez dvbapi"
+        elif [ "$os_start" != "$os_start_stop" ]; then _jak="CW znow przychodza po restarcie oscama"
         else _jak="CW znow przychodza"
         fi
         zdarzenie STOP-KONIEC "$_jak po ok. $((up - stoi_od))s od wykrycia - ${kanal:-?}"
