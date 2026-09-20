@@ -128,6 +128,11 @@
 #                                razem z obrazem), raport() ponawia co REPORT s.
 #                                ZEGAR bez powiadomienia: zdarza sie przy
 #                                starcie, a naprawia go linia w rc.local.
+#   wentylator (opcjonalnie)     przy FAN=1: gdy dysk sie kreci i grzeje,
+#                                PWM rosnie rampa co FAN_KROK stopni, a po
+#                                wystygnieciu albo zasnieciu dysku sterowanie
+#                                wraca do firmware. Kazda zmiana idzie do
+#                                zdarzenia.log jako WENTYLATOR.
 #
 # Uzycie:
 #   nbox_monitor.sh                  praca ciagla (z /etc/rc.local, w tle: &)
@@ -224,6 +229,22 @@ DZ_HDD_TEMP="${DZ_HDD_TEMP:-}"    # st. C dysku, tylko gdy sie kreci
 HDD_DEV="${HDD_DEV:-/dev/sda}"
 SMARTCTL="${SMARTCTL:-/usr/sbin/smartctl}"
 HDD_TEMP_CO="${HDD_TEMP_CO:-1800}" # s, co ile temperatura krecacego sie dysku
+
+# Wentylator. Firmware ustawia PWM tylko przy zmianie stanu boxa (wartosci
+# config.fans.0.pwm i pwm_standby z /etc/enigma2/settings), bez zwiazku
+# z temperatura dysku - przy nagrywaniu w standby dysk pisze, a wentylator stoi
+# na pwm_standby. FAN=1 podbija wtedy obroty rampa co FAN_KROK stopni, zeby
+# rozkrecal sie jak najlagodniej i najciszej. Po wystygnieciu albo gdy dysk
+# zasnie monitor oddaje sterowanie firmware, wpisujac zapamietana wartosc.
+FAN="${FAN:-0}"                    # 1 = sterowanie wentylatorem
+FAN_CTRL="${FAN_CTRL:-/proc/stb/fan/fan_ctrl}"
+FAN_GORACO="${FAN_GORACO:-50}"     # st. C, od tego zaczyna sie rampa
+FAN_ZIMNO="${FAN_ZIMNO:-48}"       # st. C, ponizej oddaj sterowanie (histereza)
+FAN_KROK="${FAN_KROK:-2}"          # st. C na jeden stopien rampy
+FAN_PWM_MIN="${FAN_PWM_MIN:-60}"   # 0-255, obroty na starcie rampy
+FAN_PWM_KROK="${FAN_PWM_KROK:-40}" # o ile PWM na stopien rampy
+FAN_PWM="${FAN_PWM:-180}"          # 0-255, sufit rampy (prog SMART to 55 st. C)
+FAN_CO="${FAN_CO:-300}"            # s, co ile temperatura, gdy FAN=1
 
 # Siec
 NAPRAWA="${NAPRAWA:-1}"            # 1 = diagnoza i naprawa przy problemie czytnika
@@ -502,15 +523,58 @@ zasoby() {
 # "Device is in STANDBY mode, exit(2)", hdparm -C dalej standby). Uspiony -
 # pytamy znow za REPORT s; odczytany - dopiero za HDD_TEMP_CO s, bo czeste
 # odpytywanie krecacego sie dysku moze na niektorych modelach odsuwac jego
-# usypianie. Wynik tylko w rundzie odczytu, inaczej z_hdd_temp jest puste.
-hdd_temp_ost=""; z_hdd_temp=""
+# usypianie. Wynik tylko w rundzie odczytu, inaczej z_hdd_temp jest puste;
+# z_hdd_spi=1 mowi, ze dysk spi (i nie ma czego chlodzic).
+hdd_temp_ost=""; z_hdd_temp=""; z_hdd_spi=""
 hdd_temp() {
-    z_hdd_temp=""
+    z_hdd_temp=""; z_hdd_spi=""
     _ht=$(uptime_s)
-    [ -n "$hdd_temp_ost" ] && [ $((_ht - hdd_temp_ost)) -lt "$HDD_TEMP_CO" ] && return 0
-    z_hdd_temp=$("$SMARTCTL" -n standby -A "$HDD_DEV" 2>/dev/null \
+    _ht_co="$HDD_TEMP_CO"
+    [ "$FAN" -eq 1 ] && _ht_co="$FAN_CO"
+    [ -n "$hdd_temp_ost" ] && [ $((_ht - hdd_temp_ost)) -lt "$_ht_co" ] && return 0
+    _ht_out=$("$SMARTCTL" -n standby -A "$HDD_DEV" 2>/dev/null)
+    case "$_ht_out" in *STANDBY*) z_hdd_spi=1 ;; esac
+    z_hdd_temp=$(echo "$_ht_out" \
         | awk '/Temperature_Celsius|Airflow_Temperature/ { print $10; exit }')
     liczba "$z_hdd_temp" && hdd_temp_ost="$_ht"
+    return 0
+}
+
+# Wentylator: rampa co FAN_KROK stopni od FAN_GORACO (FAN_PWM_MIN) do FAN_PWM.
+# Nie czyta SMART-u sam z siebie - korzysta z tego, co ustawil hdd_temp, wiec
+# spiacego dysku nie budzi. Wartosc sprzed pierwszego podbicia wraca przy
+# FAN_ZIMNO albo gdy dysk zasnie; gdy firmware nadpisze PWM (zmiana stanu
+# boxa), zapamietujemy jego nowa wartosc jako ta do oddania.
+fan_moje=""; fan_firmware=""
+fan_oddaj() {
+    [ -n "$fan_moje" ] || return 0
+    if liczba "$fan_firmware"; then
+        echo "$fan_firmware" > "$FAN_CTRL" 2>/dev/null
+        echo "$(stempel) up=$(uptime_s) WENTYLATOR oddany firmware ($fan_firmware)" \
+            >> "$RAM_DIR/zdarzenia.log" 2>/dev/null
+    fi
+    fan_moje=""
+    return 0
+}
+wentylator() {
+    [ -w "$FAN_CTRL" ] || return 0
+    _fan_now=$(cat "$FAN_CTRL" 2>/dev/null)
+    liczba "$_fan_now" || return 0
+    [ -n "$fan_moje" ] && [ "$_fan_now" != "$fan_moje" ] && fan_firmware="$_fan_now"
+    if [ -n "$z_hdd_spi" ]; then fan_oddaj; return 0; fi
+    liczba "$z_hdd_temp" || return 0
+    if [ "$z_hdd_temp" -le "$FAN_ZIMNO" ]; then fan_oddaj; return 0; fi
+    [ "$z_hdd_temp" -lt "$FAN_GORACO" ] && return 0
+    _fan_st=$(( (z_hdd_temp - FAN_GORACO) / FAN_KROK ))
+    _fan_pwm=$(( FAN_PWM_MIN + _fan_st * FAN_PWM_KROK ))
+    [ "$_fan_pwm" -gt "$FAN_PWM" ] && _fan_pwm="$FAN_PWM"
+    [ "$_fan_pwm" -le "$_fan_now" ] && [ -z "$fan_moje" ] && return 0
+    [ -z "$fan_moje" ] && fan_firmware="$_fan_now"
+    [ "$_fan_pwm" = "$_fan_now" ] && { fan_moje="$_fan_pwm"; return 0; }
+    echo "$_fan_pwm" > "$FAN_CTRL" 2>/dev/null || return 0
+    fan_moje="$_fan_pwm"
+    echo "$(stempel) up=$(uptime_s) WENTYLATOR ${z_hdd_temp} C -> PWM $_fan_pwm (bylo $_fan_now)" \
+        >> "$RAM_DIR/zdarzenia.log" 2>/dev/null
     return 0
 }
 
@@ -916,6 +980,11 @@ raport() {
             zal_temat=""
         fi
     fi
+    if [ "$FAN" -eq 1 ]; then
+        # bez Domoticza (albo bez DZ_HDD_TEMP) nikt jeszcze temperatury nie czytal
+        if [ "$DOMOTICZ" -ne 1 ] || [ -z "$idx_hdd_temp" ]; then hdd_temp; fi
+        wentylator
+    fi
     okno_snr=""; okno_sila=""; okno_ber=""; okno_ecm=0; okno_bledy=0
 }
 
@@ -1189,7 +1258,7 @@ log          linii: $n_nowe, bledow: $n_err, w tym dropping ECM: $n_drop, max cz
 incydent     $([ -n "$inc_nowy" ] && echo "powstalby plik zdarzenie_..._${inc_nowy}.log" || echo "nie (brak zdarzenia z: $INCYDENT_TYPY)")
 ekran TV     $_tv_raz
 zasoby       rootfs ${z_rootfs:-?}%  $LOG_MOUNT ${z_hdd:--}%  RAM ${z_ram:-?}%  CPU ${z_cpu:-?}% (z 2 s)  load $(cut -d' ' -f1-3 /proc/loadavg)
-dysk         $([ -n "$z_hdd_temp" ] && echo "${z_hdd_temp} C" || echo "bez temperatury - uspiony albo brak smartctl")  wentylator PWM $(cat /proc/stb/fan/fan_ctrl 2>/dev/null || echo ?)
+dysk         $([ -n "$z_hdd_temp" ] && echo "${z_hdd_temp} C" || echo "bez temperatury - uspiony albo brak smartctl")  wentylator PWM $(cat "$FAN_CTRL" 2>/dev/null || echo ?) $([ "$FAN" -eq 1 ] && echo "(FAN=1: rampa od ${FAN_GORACO} C, co ${FAN_KROK} C, ${FAN_PWM_MIN}-${FAN_PWM})" || echo "(FAN=0: rzadzi firmware)")
 EOF
     else
         [ -f "$RAM_DIR/probki.csv" ] || echo "$NAGLOWEK" > "$RAM_DIR/probki.csv"
