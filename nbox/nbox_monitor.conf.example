@@ -59,13 +59,16 @@ NAZWA="nBox Salon"
 # albo zasnieciu dysku sterowanie wraca do firmware. Przy FAN=1 temperatura
 # czytana jest co FAN_CO s zamiast co HDD_TEMP_CO s (spiacego dysku to nie budzi).
 # Domyslne progi dla ST3500418AS: SMART zglasza FAILING_NOW od 55 st. C
-# (atrybut 190, prog 045 = 100 - 55), wiec rampa startuje 5 stopni wczesniej:
-#   50 C -> 60,  52 C -> 100,  54 C -> 140,  56 C i wyzej -> 180
+# (atrybut 190, prog 045 = 100 - 55), wiec rampa startuje 5 stopni wczesniej.
+# Przy FAN_PWM_MIN=auto punktem wyjscia jest PWM firmware, wiec w standby
+# (pwm_standby=15) wychodzi: 50 C -> 15 (nic), 52 -> 55, 54 -> 95, 56 -> 135,
+# 58 -> 175, wyzej sufit 180. Przy pracujacym boxie (pwm=145) rampa startuje
+# od 145 i po jednym stopniu dobija do sufitu.
 #FAN=0
 #FAN_GORACO=50    # st. C - poczatek rampy
 #FAN_ZIMNO=48     # st. C - ponizej oddaj sterowanie firmware (histereza 2 K)
 #FAN_KROK=2       # st. C na jeden stopien rampy
-#FAN_PWM_MIN=60   # PWM na starcie rampy (za malo, by ruszyl? podnies)
+#FAN_PWM_MIN=auto # auto = PWM firmware; liczba = staly start rampy
 #FAN_PWM_KROK=40  # o ile PWM na stopien
 #FAN_PWM=180      # sufit rampy (255 = maksimum, slychac)
 #FAN_CO=300       # s miedzy odczytami temperatury przy FAN=1

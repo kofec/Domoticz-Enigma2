@@ -241,7 +241,9 @@ FAN_CTRL="${FAN_CTRL:-/proc/stb/fan/fan_ctrl}"
 FAN_GORACO="${FAN_GORACO:-50}"     # st. C, od tego zaczyna sie rampa
 FAN_ZIMNO="${FAN_ZIMNO:-48}"       # st. C, ponizej oddaj sterowanie (histereza)
 FAN_KROK="${FAN_KROK:-2}"          # st. C na jeden stopien rampy
-FAN_PWM_MIN="${FAN_PWM_MIN:-60}"   # 0-255, obroty na starcie rampy
+FAN_PWM_MIN="${FAN_PWM_MIN:-auto}" # 0-255 albo auto = PWM firmware (15 w standby,
+                                   # 145 przy pracy): pierwszy stopien rampy jest
+                                   # wtedy ledwie slyszalny
 FAN_PWM_KROK="${FAN_PWM_KROK:-40}" # o ile PWM na stopien rampy
 FAN_PWM="${FAN_PWM:-180}"          # 0-255, sufit rampy (prog SMART to 55 st. C)
 FAN_CO="${FAN_CO:-300}"            # s, co ile temperatura, gdy FAN=1
@@ -566,7 +568,14 @@ wentylator() {
     if [ "$z_hdd_temp" -le "$FAN_ZIMNO" ]; then fan_oddaj; return 0; fi
     [ "$z_hdd_temp" -lt "$FAN_GORACO" ] && return 0
     _fan_st=$(( (z_hdd_temp - FAN_GORACO) / FAN_KROK ))
-    _fan_pwm=$(( FAN_PWM_MIN + _fan_st * FAN_PWM_KROK ))
+    if liczba "$FAN_PWM_MIN"; then
+        _fan_baza="$FAN_PWM_MIN"
+    elif [ -n "$fan_moje" ] && liczba "$fan_firmware"; then
+        _fan_baza="$fan_firmware"   # juz sterujemy - baza to zapamietane firmware
+    else
+        _fan_baza="$_fan_now"
+    fi
+    _fan_pwm=$(( _fan_baza + _fan_st * FAN_PWM_KROK ))
     [ "$_fan_pwm" -gt "$FAN_PWM" ] && _fan_pwm="$FAN_PWM"
     [ "$_fan_pwm" -le "$_fan_now" ] && [ -z "$fan_moje" ] && return 0
     [ -z "$fan_moje" ] && fan_firmware="$_fan_now"
@@ -1258,7 +1267,7 @@ log          linii: $n_nowe, bledow: $n_err, w tym dropping ECM: $n_drop, max cz
 incydent     $([ -n "$inc_nowy" ] && echo "powstalby plik zdarzenie_..._${inc_nowy}.log" || echo "nie (brak zdarzenia z: $INCYDENT_TYPY)")
 ekran TV     $_tv_raz
 zasoby       rootfs ${z_rootfs:-?}%  $LOG_MOUNT ${z_hdd:--}%  RAM ${z_ram:-?}%  CPU ${z_cpu:-?}% (z 2 s)  load $(cut -d' ' -f1-3 /proc/loadavg)
-dysk         $([ -n "$z_hdd_temp" ] && echo "${z_hdd_temp} C" || echo "bez temperatury - uspiony albo brak smartctl")  wentylator PWM $(cat "$FAN_CTRL" 2>/dev/null || echo ?) $([ "$FAN" -eq 1 ] && echo "(FAN=1: rampa od ${FAN_GORACO} C, co ${FAN_KROK} C, ${FAN_PWM_MIN}-${FAN_PWM})" || echo "(FAN=0: rzadzi firmware)")
+dysk         $([ -n "$z_hdd_temp" ] && echo "${z_hdd_temp} C" || echo "bez temperatury - uspiony albo brak smartctl")  wentylator PWM $(cat "$FAN_CTRL" 2>/dev/null || echo ?) $([ "$FAN" -eq 1 ] && echo "(FAN=1: rampa od ${FAN_GORACO} C, co ${FAN_KROK} C: start $(liczba "$FAN_PWM_MIN" && echo "$FAN_PWM_MIN" || echo "PWM firmware") +${FAN_PWM_KROK} na stopien, sufit ${FAN_PWM})" || echo "(FAN=0: rzadzi firmware)")
 EOF
     else
         [ -f "$RAM_DIR/probki.csv" ] || echo "$NAGLOWEK" > "$RAM_DIR/probki.csv"
