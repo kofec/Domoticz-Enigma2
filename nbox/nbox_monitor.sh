@@ -123,7 +123,8 @@
 #                                co HDD_TEMP_CO s, tylko gdy sie kreci;
 #                                ostatnie zdarzenie do urzadzenia tekstowego;
 #                                STOP/LOCK/CZYTNIK/WEBIF/ENIGMA jako
-#                                powiadomienie "NAZWA: co sie stalo".
+#                                powiadomienie "NAZWA: co sie stalo", NAZWA
+#                                takze na poczatku tresci.
 #                                Powiadomienie, ktore nie przeszlo (siec padla
 #                                razem z obrazem), raport() ponawia co REPORT s.
 #                                ZEGAR bez powiadomienia: zdarza sie przy
@@ -152,7 +153,8 @@
 # Konfiguracja: zmienne nizej albo /root/nbox_monitor.conf (sourcowany jako
 # pierwszy, wiec wygrywa) - wzor z opisem: nbox_monitor.conf.example.
 # Bez DOMOTICZ_HOST skrypt pracuje tylko lokalnie (na nBoxie Domoticza nie
-# ma). NAZWA idzie w temat powiadomien ("nBox Salon: obraz stoi ..."),
+# ma). NAZWA idzie w temat powiadomien ("nBox Salon: obraz stoi ...") i na
+# poczatek ich tresci,
 # idx urzadzen (DZ_*) to liczby z tej samej konfiguracji - puste wylacza
 # tylko ten jeden pomiar. /root/lib nie jest potrzebne: obsluga Domoticza
 # jest w tym pliku. Na boxie wystarcza ten skrypt i nbox_sygnal.py.
@@ -811,7 +813,7 @@ restart_boxa() {
     _n="zdarzenie_$(date +%Y%m%d_%H%M%S)_REBOOT.log"
     incydent_tresc REBOOT "$1" > "$RAM_DIR/$_n"
     katalog_ok && cp "$RAM_DIR/$_n" "$LOG_DIR/$_n"
-    [ "$DOMOTICZ" -eq 1 ] && dz_notify "$NAZWA: restart boxa" "$1"
+    [ "$DOMOTICZ" -eq 1 ] && dz_notify "$NAZWA: restart boxa" "$NAZWA: $1"
     sync
     sleep 5
     reboot
@@ -891,7 +893,9 @@ powiadom() {
         *)         pow_inne="$_t" ;;
     esac
     _temat="$NAZWA: $(opis_krotki "$1" "$2")"
-    _tresc="$(date +%H:%M:%S) dekoder $([ "$tuner" -eq 1 ] && echo wlaczony || echo w standby) - $1: $2"
+    # NAZWA takze w tresci - kanal powiadomien (np. Telegram) moze pokazac
+    # sama tresc, a wtedy nie wiadomo, z ktorego boxa przyszlo
+    _tresc="$NAZWA, $(date +%H:%M:%S): dekoder $([ "$tuner" -eq 1 ] && echo wlaczony || echo w standby) - $1: $2"
     dz_notify "$_temat" "$_tresc" && return 0
     # Domoticz nie odpowiada - czesto z tego samego powodu, ktory zatrzymal
     # obraz (siec). Ostatnie takie powiadomienie ponawia raport().
@@ -1323,7 +1327,7 @@ if [ "$TRYB" = test_dz ]; then
         exit 1
     fi
     echo "Domoticz ${DOMOTICZ_HOST}:${DOMOTICZ_PORT}, NAZWA=$NAZWA"
-    if dz_notify "$NAZWA: test nbox_monitor" "powiadomienie testowe, $(stempel)"; then
+    if dz_notify "$NAZWA: test nbox_monitor" "$NAZWA, powiadomienie testowe, $(stempel)"; then
         echo "powiadomienie  wyslane"
     else
         echo "powiadomienie  BLAD - Domoticz nie odpowiada"

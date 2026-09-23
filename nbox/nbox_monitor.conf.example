@@ -15,7 +15,8 @@
 # Sprawdzenie po wgraniu (nic nie zapisuje ani nie wysyla):
 #   sh /root/nbox_monitor.sh --raz
 
-# Kto to jest - idzie w temat powiadomien: "nBox Salon: obraz stoi - ...".
+# Kto to jest - idzie w temat powiadomien ("nBox Salon: obraz stoi - ...")
+# i na poczatek ich tresci.
 # Domyslnie hostname, a ten na nBoxach bywa jednakowy.
 NAZWA="nBox Salon"
 
