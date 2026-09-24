@@ -121,7 +121,9 @@
 #                                jako komunikat OpenWebifu /web/message - tylko
 #                                gdy tuner pracuje, najwyzej jeden na TV_GAP s.
 #                                Tresc dla ogladajacego: co sie stalo i czy
-#                                czekac, czy zmienic kanal.
+#                                czekac, czy zmienic kanal - z szablonow
+#                                TV_TXT_*, TV_PRZ_*, TV_RADA_* (do nadpisania
+#                                w nbox_monitor.conf dla danego boxa).
 #   Domoticz (opcjonalnie)       co REPORT s: min SNR i sily sygnalu, max BER,
 #                                max czas ECM, liczba bledow oscama, zajetosc
 #                                rootfs i /hdd, RAM i CPU; temperatura dysku
@@ -197,6 +199,25 @@ TV_TYPY="${TV_TYPY-STOP LOCK}"    # zdarzenia na ekranie TV; "" = wcale
 TV_GAP="${TV_GAP:-600}"           # s, min. odstep komunikatow na ekranie
 TV_CZAS="${TV_CZAS:-20}"          # s, jak dlugo komunikat wisi na ekranie
 TV_TYP="${TV_TYP:-1}"             # okno enigmy: 1 informacja, 2 ostrzezenie, 3 blad
+
+# Teksty na ekran - kazdy do nadpisania w nbox_monitor.conf, pusty wylacza
+# komunikat danego typu. "\n" = nowa linia. Znaczniki: {KANAL} {PRZYCZYNA}
+# {RADA} {SNR} {NAZWA}; {PRZYCZYNA} i {RADA} ma tylko STOP - wybierane z
+# TV_PRZ_* i TV_RADA_* wedlug stanu oscama i czytnikow.
+# Domyslne tylko, gdy zmiennej nie ustawiono (pusta zostaje pusta) - nie przez
+# ${X-...}, bo "}" ze znacznika zamknalby rozwiniecie.
+[ -n "${TV_TXT_STOP+x}" ]    || TV_TXT_STOP='Obraz zatrzymany - kanal {KANAL}.\nPrzyczyna: {PRZYCZYNA}.\n{RADA}'
+[ -n "${TV_TXT_LOCK+x}" ]    || TV_TXT_LOCK='Brak sygnalu z satelity (SNR {SNR}%).\nMozliwe przyczyny: pogoda (snieg, ulewa), antena, kabel.\nObraz wroci razem z sygnalem.'
+[ -n "${TV_TXT_SYGNAL+x}" ]  || TV_TXT_SYGNAL='Slaby sygnal z satelity (SNR {SNR}%).\nObraz moze sie rozpadac na kwadraty.'
+[ -n "${TV_TXT_CZYTNIK+x}" ] || TV_TXT_CZYTNIK='Brak polaczenia z serwerem kart.\nKanaly kodowane moga nie dzialac.'
+[ -n "${TV_TXT_WEBIF+x}" ]   || TV_TXT_WEBIF='Program oscam w dekoderze nie odpowiada.\nKanaly kodowane moga nie dzialac.'
+[ -n "${TV_TXT_OBRAZ+x}" ]   || TV_TXT_OBRAZ='Dekoder nie pokazuje obrazu - kanal {KANAL}.\nMoze to byc kanal spoza pakietu.'
+[ -n "${TV_PRZ_OSCAM+x}" ]   || TV_PRZ_OSCAM='program oscam w dekoderze nie odpowiada'
+[ -n "${TV_PRZ_SIEC+x}" ]    || TV_PRZ_SIEC='brak polaczenia z serwerem kart'
+[ -n "${TV_PRZ_ODRZUCA+x}" ] || TV_PRZ_ODRZUCA='dekoder odrzuca klucze'
+[ -n "${TV_PRZ_SERWER+x}" ]  || TV_PRZ_SERWER='serwer kart nie przysyla kluczy'
+[ -n "${TV_RADA_CZEKAJ+x}" ] || TV_RADA_CZEKAJ='Poczekaj - obraz powinien wrocic sam.'
+[ -n "${TV_RADA_KANAL+x}" ]  || TV_RADA_KANAL='Zmien kanal i wroc.'
 
 RAM_DIR="${RAM_DIR:-/tmp/nbox_monitor}"
 PROBKI_MAX="${PROBKI_MAX:-2160}"       # linii probek (2160 x 10 s = 6 h) + .1
@@ -910,33 +931,54 @@ powiadom() {
 
 # --- Ekran telewizora --------------------------------------------------------
 
+# Zamiana wszystkich wystapien znacznika ($2) na wartosc ($3) w tekscie ($1).
+# Samymi rozwinieciami POSIX - bez sed, bo wartosc (nazwa kanalu) moze miec
+# "/" i "&", i bez ${x//}, ktorego busybox ash nie musi miec.
+zamien() {
+    _z_t="$1"; _z_w=""
+    while :; do
+        case "$_z_t" in
+            *"$2"*) _z_w="$_z_w${_z_t%%"$2"*}$3"; _z_t="${_z_t#*"$2"}" ;;
+            *) break ;;
+        esac
+    done
+    printf '%s' "$_z_w$_z_t"
+}
+
 # Tekst dla ogladajacego ($1 typ, $2 opis zdarzenia); pusto = nic nie pokazujemy.
-# Przyczyne STOP bierze ze zmiennych biezacego przebiegu.
+# Szablony TV_TXT_* z konfiguracji; przyczyne STOP bierze ze zmiennych
+# biezacego przebiegu.
 tv_tresc() {
+    _p=""; _rada=""
     case "$1" in
         STOP)
-            _rada="Poczekaj - obraz powinien wrocic sam."
-            if [ -z "$os" ]; then _p="program oscam w dekoderze nie odpowiada"
-            elif [ -n "$czyt_problem" ] && [ "$czyt_ok" -eq 0 ]; then _p="brak polaczenia z serwerem kart"
+            _szablon="$TV_TXT_STOP"; _rada="$TV_RADA_CZEKAJ"
+            if [ -z "$os" ]; then _p="$TV_PRZ_OSCAM"
+            elif [ -n "$czyt_problem" ] && [ "$czyt_ok" -eq 0 ]; then _p="$TV_PRZ_SIEC"
             elif [ "${n_drop:-0}" -gt 0 ]; then
                 # tak konczy sie skok zegara (ZEGAR): do zmiany kanalu
-                _p="dekoder odrzuca klucze"; _rada="Zmien kanal i wroc."
-            else _p="serwer kart nie przysyla kluczy"
-            fi
-            printf 'Obraz zatrzymany - kanal %s.\nPrzyczyna: %s.\n%s' "${kanal:-?}" "$_p" "$_rada" ;;
-        LOCK)
-            printf 'Brak sygnalu z satelity (SNR %s%%).\nMozliwe przyczyny: pogoda (snieg, ulewa), antena, kabel.\nObraz wroci razem z sygnalem.' "${snr:-?}" ;;
-        SYGNAL)
-            printf 'Slaby sygnal z satelity (SNR %s%%).\nObraz moze sie rozpadac na kwadraty.' "${snr:-?}" ;;
-        CZYTNIK)
-            printf 'Brak polaczenia z serwerem kart.\nKanaly kodowane moga nie dzialac.' ;;
+                _p="$TV_PRZ_ODRZUCA"; _rada="$TV_RADA_KANAL"
+            else _p="$TV_PRZ_SERWER"
+            fi ;;
+        LOCK)    _szablon="$TV_TXT_LOCK" ;;
+        SYGNAL)  _szablon="$TV_TXT_SYGNAL" ;;
+        CZYTNIK) _szablon="$TV_TXT_CZYTNIK" ;;
         WEBIF)
             case "$2" in
-                *oscam=BRAK*) printf 'Program oscam w dekoderze nie odpowiada.\nKanaly kodowane moga nie dzialac.' ;;
+                *oscam=BRAK*) _szablon="$TV_TXT_WEBIF" ;;
+                *) _szablon="" ;;
             esac ;;
-        OBRAZ)
-            printf 'Dekoder nie pokazuje obrazu - kanal %s.\nMoze to byc kanal spoza pakietu.' "${kanal:-?}" ;;
+        OBRAZ)   _szablon="$TV_TXT_OBRAZ" ;;
+        *)       _szablon="" ;;
     esac
+    [ -n "$_szablon" ] || return 0
+    _s=$(zamien "$_szablon" "{KANAL}" "${kanal:-?}")
+    _s=$(zamien "$_s" "{PRZYCZYNA}" "$_p")
+    _s=$(zamien "$_s" "{RADA}" "$_rada")
+    _s=$(zamien "$_s" "{SNR}" "${snr:-?}")
+    _s=$(zamien "$_s" "{NAZWA}" "$NAZWA")
+    # %b zamienia "\n" z szablonu na nowa linie
+    printf '%b' "$_s"
 }
 
 tv_wyslij() {

@@ -84,6 +84,29 @@ NAZWA="nBox Salon"
 #TV_GAP=600     # s miedzy komunikatami
 #TV_CZAS=20     # s na ekranie
 #TV_TYP=1       # okno enigmy: 1 informacja, 2 ostrzezenie, 3 blad
+#
+# Teksty na ekranie - nadpisz tylko te, ktore maja byc inne na tym boxie
+# (np. inny numer telefonu albo prostsze slowa dla dziadkow). "\n" = nowa
+# linia; tekst w cudzyslowach, bez "$" i "`". Pusty tekst (TV_TXT_LOCK="")
+# wylacza komunikat tego typu. Znaczniki podstawiane przy wysylce:
+#   {KANAL} nazwa kanalu   {SNR} SNR w %   {NAZWA} NAZWA z tego pliku
+#   {PRZYCZYNA} i {RADA} - tylko w STOP, wybierane z TV_PRZ_* i TV_RADA_*
+# Wartosci domyslne:
+#TV_TXT_STOP="Obraz zatrzymany - kanal {KANAL}.\nPrzyczyna: {PRZYCZYNA}.\n{RADA}"
+#TV_TXT_LOCK="Brak sygnalu z satelity (SNR {SNR}%).\nMozliwe przyczyny: pogoda (snieg, ulewa), antena, kabel.\nObraz wroci razem z sygnalem."
+#TV_TXT_SYGNAL="Slaby sygnal z satelity (SNR {SNR}%).\nObraz moze sie rozpadac na kwadraty."
+#TV_TXT_CZYTNIK="Brak polaczenia z serwerem kart.\nKanaly kodowane moga nie dzialac."
+#TV_TXT_WEBIF="Program oscam w dekoderze nie odpowiada.\nKanaly kodowane moga nie dzialac."
+#TV_TXT_OBRAZ="Dekoder nie pokazuje obrazu - kanal {KANAL}.\nMoze to byc kanal spoza pakietu."
+# Przyczyna STOP ({PRZYCZYNA}): oscam nie odpowiada / zaden czytnik nie jest
+# polaczony / dekoder odrzuca klucze (dropping ECM) / pozostale przypadki.
+#TV_PRZ_OSCAM="program oscam w dekoderze nie odpowiada"
+#TV_PRZ_SIEC="brak polaczenia z serwerem kart"
+#TV_PRZ_ODRZUCA="dekoder odrzuca klucze"
+#TV_PRZ_SERWER="serwer kart nie przysyla kluczy"
+# Rada w STOP ({RADA}): przy odrzucaniu kluczy TV_RADA_KANAL, poza tym CZEKAJ.
+#TV_RADA_CZEKAJ="Poczekaj - obraz powinien wrocic sam."
+#TV_RADA_KANAL="Zmien kanal i wroc."
 
 # --- Siec --------------------------------------------------------------------
 # Ping tylko wtedy, gdy tuner pracuje (nie w standby), a zaden czytnik oscama
