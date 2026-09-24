@@ -1,0 +1,36 @@
+#!/bin/sh
+# nbox_monitor - zatrzymanie monitora przy wylaczaniu i restarcie boxa.
+#
+# Instalacja (GraterliaOS, nBox ADB 5800):
+#   /etc/init.d/nbox_monitor
+#   /etc/rc.d/rc0.d/K05nbox_monitor -> ../init.d/nbox_monitor
+#   /etc/rc.d/rc6.d/K05nbox_monitor -> ../init.d/nbox_monitor
+#
+# K05 idzie przed K08gui i K18softcam, wiec monitor konczy sie, zanim znikna
+# enigma2 i oscam. Bez tego dozywa do S20sendsigs i po drodze zdazy wyslac
+# falszywe WEBIF oscam=BRAK e2=BRAK - tak jak przy nocnym wylaczaniu
+# z Domoticza o 00:58:05. Przy okazji zwalnia /hdd przed S40umountfs.
+#
+# Start zostaje w /etc/rc.local.
+
+PIDF=/tmp/nbox_monitor.pid
+
+case $1 in
+stop)
+	p=$(cat $PIDF 2>/dev/null)
+	kill $p 2>/dev/null
+	i=0
+	while kill -0 $p 2>/dev/null; do
+		i=$(expr $i + 1)
+		if [ $i -ge 10 ]; then
+			kill -9 $p 2>/dev/null
+			break
+		fi
+		sleep 1
+	done
+	rm -f $PIDF
+	echo nbox_monitor stopped
+	;;
+esac
+
+exit 0
