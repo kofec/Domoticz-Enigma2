@@ -26,6 +26,9 @@
 #              klienta dvbapi przy zamykaniu oscama STOP-u nie konczy.
 #   LOCK       tuner stracil synchronizacje z satelita (brak FE_HAS_LOCK) -
 #              obraz staje od razu, niezaleznie od oscama. LOCK-OK po powrocie.
+#              Tylko gdy enigma2 dekoduje (trzyma demux): przy przestrajaniu
+#              na inny transponder trzyma sam frontend i lock na chwile spada
+#              do zera. To samo dotyczy SYGNAL.
 #   OBRAZ      tuner pracuje, a dekoder nie podaje obrazu (vmpeg xres = 0)
 #              dluzej niz ECM_STALL s. DO SPRAWDZENIA: nie wiadomo jeszcze,
 #              czy przy braku CW dekoder zeruje xres, czy trzyma ostatnia
@@ -1274,9 +1277,17 @@ przebieg() {
         stoi_od=""
     fi
 
+    # LOCK i SYGNAL tylko wtedy, gdy enigma2 dekoduje (trzyma demux). Przy
+    # przestrajaniu na inny transponder trzyma sam frontend, a lock, SNR i sila
+    # spadaja na chwile do zera - 2026-09-24 12:40 u Dziadka dalo to falszywy
+    # LOCK i komunikat o antenie na ekranie przy zwyklej zmianie kanalu.
+    # Prawdziwe utraty sygnalu (Podlipie 22.09) mialy demux przez caly czas.
+    _dekoduje=0
+    case "$dvb_fd" in *demux*) _dekoduje=1 ;; esac
+
     # LOCK - tuner stracil synchronizacje (tylko z pomocnika; 10 s po zmianie
     # kanalu tuner jeszcze sie stroi)
-    if [ "$tuner" -eq 1 ] && [ -n "$lock" ] && [ $((up - zmiana_od)) -ge 10 ]; then
+    if [ "$_dekoduje" -eq 1 ] && [ -n "$lock" ] && [ $((up - zmiana_od)) -ge 10 ]; then
         if [ "$lock" -eq 0 ] && [ "$lock_zly" -ne 1 ]; then
             lock_zly=1; zdarzenie LOCK "tuner bez synchronizacji ($_fe_st, SNR ${snr:-?}%, sila ${sila:-?}%) - ${kanal:-?}"
         elif [ "$lock" -eq 1 ] && [ "$lock_zly" -eq 1 ]; then
@@ -1296,7 +1307,7 @@ przebieg() {
     fi
 
     # SYGNAL - tylko z pomiarow, 10 s po zmianie tuner jeszcze sie stroi
-    if [ -n "$snr" ] && [ $((up - zmiana_od)) -ge 10 ]; then
+    if [ "$_dekoduje" -eq 1 ] && [ -n "$snr" ] && [ $((up - zmiana_od)) -ge 10 ]; then
         if [ "$snr" -lt "$SNR_ALERT" ] && [ "$snr_zly" -ne 1 ]; then
             snr_zly=1; zdarzenie SYGNAL "SNR ${snr}% < ${SNR_ALERT}% (sila ${sila:-?}%, BER ${ber:-?}) - ${kanal:-?}"
         elif [ "$snr" -ge $((SNR_ALERT + 5)) ] && [ "$snr_zly" -eq 1 ]; then
