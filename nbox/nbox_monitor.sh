@@ -127,6 +127,10 @@
 #                                czekac, czy zmienic kanal - z szablonow
 #                                TV_TXT_*, TV_PRZ_*, TV_RADA_* (do nadpisania
 #                                w nbox_monitor.conf dla danego boxa).
+#                                Kazda proba idzie do zdarzenia.log: EKRAN
+#                                (z trescia, "|" = nowa linia), EKRAN-BLAD
+#                                (OpenWebif nie przyjal) albo EKRAN-POMINIETY
+#                                (wstrzymany przez TV_GAP).
 #   Domoticz (opcjonalnie)       co REPORT s: min SNR i sily sygnalu, max BER,
 #                                max czas ECM, liczba bledow oscama, zajetosc
 #                                rootfs i /hdd, RAM i CPU; temperatura dysku
@@ -984,10 +988,21 @@ tv_tresc() {
     printf '%b' "$_s"
 }
 
+# Sukces = odpowiedz HTTP 200 bez <e2state>False (tak OpenWebif odmawia).
 tv_wyslij() {
-    pobierz "$E2_URL/web/message?text=$(url_kod "$1")&type=${TV_TYP}&timeout=${TV_CZAS}" >/dev/null && return 0
-    logger -t "$TAG" "komunikat na ekran nie przeszedl ($E2_URL)" 2>/dev/null
-    return 1
+    _tw=$(pobierz "$E2_URL/web/message?text=$(url_kod "$1")&type=${TV_TYP}&timeout=${TV_CZAS}") || return 1
+    case "$_tw" in *"<e2state>False"*) return 1 ;; esac
+    return 0
+}
+
+# Slad komunikatu na ekranie w zdarzenia.log. Osobno od zdarzenie(): EKRAN nie
+# jest zdarzeniem boxa i nie moze zastapic STOP/LOCK w urzadzeniu tekstowym
+# Domoticza. Na nBoxach nie ma sysloga, wiec sam logger nie zostawial sladu.
+ekran_log() {
+    _el="$(stempel) up=$(uptime_s) $1 $(printf '%s' "$2" | tr '\n' '|')"
+    logger -t "$TAG" "$1" 2>/dev/null
+    if [ "$TRYB" = raz ]; then echo "ZDARZENIE  $_el"; return 0; fi
+    echo "$_el" >> "$RAM_DIR/zdarzenia.log"
 }
 
 tv_pokaz() {
@@ -996,9 +1011,16 @@ tv_pokaz() {
     _txt=$(tv_tresc "$_typ" "$_opis")
     [ -n "$_txt" ] || return 0
     _t=$(uptime_s)
-    [ -n "$tv_ost" ] && [ $((_t - tv_ost)) -lt "$TV_GAP" ] && return 0
+    if [ -n "$tv_ost" ] && [ $((_t - tv_ost)) -lt "$TV_GAP" ]; then
+        ekran_log EKRAN-POMINIETY "$_typ - poprzedni komunikat $((_t - tv_ost))s temu (TV_GAP=${TV_GAP}s)"
+        return 0
+    fi
     tv_ost="$_t"
-    tv_wyslij "$_txt" && logger -t "$TAG" "ekran: $_typ" 2>/dev/null
+    if tv_wyslij "$_txt"; then
+        ekran_log EKRAN "$_typ: $_txt"
+    else
+        ekran_log EKRAN-BLAD "$_typ - OpenWebif ($E2_URL) nie przyjal komunikatu"
+    fi
     return 0
 }
 
