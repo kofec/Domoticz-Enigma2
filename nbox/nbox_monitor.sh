@@ -21,6 +21,10 @@
 #                  /tmp/ecm.info z dysku),
 #                - dvbapi dekoduje program, a /tmp/ecm.info jest starszy niz
 #                  ECM_STALL s.
+#              STOP w ciagu ECM_STALL + 2*POLL s po zmianie kanalu dostaje
+#              dopisek "(zaraz po zmianie kanalu)", a na ekranie rade zmiany
+#              kanalu (TV_RADA_KANAL) zamiast "poczekaj" - klucze nie ruszyly
+#              na nowym kanale i czekanie nie pomaga.
 #              STOP-KONIEC mowi, jak sie skonczylo (CW wrocily, takze po
 #              restarcie oscama / zmiana kanalu / standby); znikniecie
 #              klienta dvbapi przy zamykaniu oscama STOP-u nie konczy.
@@ -966,7 +970,9 @@ tv_tresc() {
                 # tak konczy sie skok zegara (ZEGAR): do zmiany kanalu
                 _p="$TV_PRZ_ODRZUCA"; _rada="$TV_RADA_KANAL"
             else _p="$TV_PRZ_SERWER"
-            fi ;;
+            fi
+            # klucze nie ruszyly zaraz po zmianie kanalu - czekanie nie pomaga
+            [ "${stop_po_zmianie:-0}" -eq 1 ] && _rada="$TV_RADA_KANAL" ;;
         LOCK)    _szablon="$TV_TXT_LOCK" ;;
         SYGNAL)  _szablon="$TV_TXT_SYGNAL" ;;
         CZYTNIK) _szablon="$TV_TXT_CZYTNIK" ;;
@@ -1083,6 +1089,7 @@ czyt_zle=0; czyt_zgloszony=0; czyt_ostatnie_ok=""; czyt_problem=""; czyt_od=""; 
 czyt_sprawdzaj=0; czyt_wl_od=0
 tuner_pop=""; sid_pop=""; zmiana_od=0; stoi_od=""; sid_stop=""; os_start_stop=""
 obraz_od=""; obraz_zly=0; snr_zly=0; ber_zly=0; lock_zly=0; sygnal_ost=0
+stop_po_zmianie=0
 
 przebieg() {
     up=$(uptime_s)
@@ -1287,7 +1294,15 @@ przebieg() {
 
     if [ "$_stoi" -eq 1 ] && [ -z "$stoi_od" ]; then
         stoi_od="$up"; sid_stop="$dvb_sid"; os_start_stop="$os_start"
-        zdarzenie STOP "$_dlaczego - ${kanal:-?}, lock ${lock:-?} SNR ${snr:-?}% BER ${ber:-?}, xres $xres, czytniki: ${czytniki:-?}"
+        # STOP najwczesniej, na jaki pozwala _spokoj po zmianie kanalu = klucze
+        # nie ruszyly na nowym kanale. Czekanie wtedy nie pomaga (Podlipie
+        # 2026-09-23 22:51, TVP Sport HD: jeden CW i koniec) - na ekranie rada
+        # zmiany kanalu zamiast "poczekaj".
+        stop_po_zmianie=0; _po_zm=""
+        if [ $((up - zmiana_od)) -le $((ECM_STALL + 2 * POLL)) ]; then
+            stop_po_zmianie=1; _po_zm=" (zaraz po zmianie kanalu)"
+        fi
+        zdarzenie STOP "$_dlaczego$_po_zm - ${kanal:-?}, lock ${lock:-?} SNR ${snr:-?}% BER ${ber:-?}, xres $xres, czytniki: ${czytniki:-?}"
     elif [ "$_stoi" -eq 0 ] && [ -n "$stoi_od" ]; then
         if [ "$tuner" -eq 0 ]; then _jak="standby"
         elif [ "$dvb_sid" != "$sid_stop" ] && [ -n "$dvb_sid" ]; then _jak="zmiana kanalu"

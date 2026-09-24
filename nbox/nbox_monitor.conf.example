@@ -104,7 +104,9 @@ NAZWA="nBox Salon"
 #TV_PRZ_SIEC="brak polaczenia z serwerem kart"
 #TV_PRZ_ODRZUCA="dekoder odrzuca klucze"
 #TV_PRZ_SERWER="serwer kart nie przysyla kluczy"
-# Rada w STOP ({RADA}): przy odrzucaniu kluczy TV_RADA_KANAL, poza tym CZEKAJ.
+# Rada w STOP ({RADA}): TV_RADA_KANAL przy odrzucaniu kluczy i gdy obraz stanal
+# zaraz po zmianie kanalu (klucze nie ruszyly - czekanie nie pomoze), poza tym
+# TV_RADA_CZEKAJ.
 #TV_RADA_CZEKAJ="Poczekaj - obraz powinien wrocic sam."
 #TV_RADA_KANAL="Zmien kanal i wroc."
 
