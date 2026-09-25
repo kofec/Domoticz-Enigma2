@@ -142,7 +142,10 @@
 #                                ostatnie zdarzenie do urzadzenia tekstowego;
 #                                STOP/LOCK/CZYTNIK/WEBIF/ENIGMA jako
 #                                powiadomienie "NAZWA: co sie stalo", NAZWA
-#                                takze na poczatku tresci.
+#                                takze na poczatku tresci. CZYTNIK tylko, gdy
+#                                zaden czytnik nie jest polaczony (jesli
+#                                drugi padnie pozniej, CZYTNIK idzie jeszcze
+#                                raz, juz z powiadomieniem).
 #                                Powiadomienie, ktore nie przeszlo (siec padla
 #                                razem z obrazem), raport() ponawia co REPORT s.
 #                                ZEGAR bez powiadomienia: zdarza sie przy
@@ -657,9 +660,15 @@ zdarzenie() {
     echo "$_linia" >> "$RAM_DIR/zdarzenia.log"
     zd_liczba=$((zd_liczba + 1))
     zd_ostatnie="$(date +%H:%M:%S) $1 $2"
+    # CZYTNIK na telefon tylko, gdy zaden czytnik nie jest polaczony. Przy
+    # dwoch oscam sam zamyka bezczynny ("disconnected: reason inactivity"),
+    # gdy klucze ida z drugiego - 2026-09-24 u Dziadka 4 powiadomienia
+    # w godzine przy dzialajacym newcamd. W zdarzenia.log zostaje.
     case "$1" in
-        STOP|LOCK|CZYTNIK|WEBIF|ENIGMA) zd_wazne="$1"; zd_wazny_txt="$2" ;;
+        CZYTNIK) [ "${czyt_ok:-0}" -eq 0 ] && { zd_wazne="$1"; zd_wazny_txt="$2"; } ;;
+        STOP|LOCK|WEBIF|ENIGMA) zd_wazne="$1"; zd_wazny_txt="$2" ;;
     esac
+    return 0
 }
 
 # --- Incydenty na dysk -----------------------------------------------------
@@ -1086,7 +1095,7 @@ ostatnia_linia=""; e2p_pop=""
 os_start_pop=""; webif_pop=""; zegar_zgloszony=""
 os_start=""; dvb_sid=""; czytniki=""; kanal=""; os_ok=0
 czyt_zle=0; czyt_zgloszony=0; czyt_ostatnie_ok=""; czyt_problem=""; czyt_od=""; czyt_ok=0
-czyt_sprawdzaj=0; czyt_wl_od=0
+czyt_sprawdzaj=0; czyt_wl_od=0; czyt_brak_zgl=0
 tuner_pop=""; sid_pop=""; zmiana_od=0; stoi_od=""; sid_stop=""; os_start_stop=""
 obraz_od=""; obraz_zly=0; snr_zly=0; ber_zly=0; lock_zly=0; sygnal_ost=0
 stop_po_zmianie=0
@@ -1215,8 +1224,14 @@ przebieg() {
             czyt_zle=$((czyt_zle + 1))
             [ -n "$czyt_od" ] || czyt_od="$up"
             if [ "$czyt_zle" -ge 2 ] && [ "$czyt_zgloszony" -eq 0 ]; then
-                czyt_zgloszony=1
+                czyt_zgloszony=1; czyt_brak_zgl=0
+                [ "$czyt_ok" -eq 0 ] && czyt_brak_zgl=1
                 zdarzenie CZYTNIK "${czyt_ostatnie_ok:-?} -> $czyt_problem (od $czyt_zle probek, polaczonych: $czyt_ok)"
+            elif [ "$czyt_zgloszony" -eq 1 ] && [ "$czyt_ok" -eq 0 ] && [ "$czyt_brak_zgl" -eq 0 ]; then
+                # CZYTNIK zgloszony, gdy inny jeszcze dzialal (bez powiadomienia),
+                # a teraz nie ma zadnego - to juz brak kluczy, wiec drugi raz
+                czyt_brak_zgl=1
+                zdarzenie CZYTNIK "$czyt_problem - zaden czytnik nie jest polaczony"
             fi
         else
             czyt_zle=0; czyt_od=""
