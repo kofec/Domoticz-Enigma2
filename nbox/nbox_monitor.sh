@@ -96,6 +96,9 @@
 #                            zapytaniem; dziala takze przy disablelog = 1.
 #                            NIE logpoll.html: linie w base64, a dekodowanie w
 #                            busyboxowym awk na sh4 to 12-14 s CPU / 256 linii.
+#   OpenWebif /api/statusinfo  tylko przy STOP, LOCK, OBRAZ, SYGNAL: nazwa
+#                            kanalu, gdy oscam jej nie zna, i transponder
+#                            ("tp TSID/namespace" w LOCK i SYGNAL)
 #   OpenWebif /api/signal    tylko ZAPAS, gdy pomocnika nie ma albo jego odczyt
 #                            jest nieswiezy: gdy tuner pracuje, najwyzej co
 #                            SIGNAL_EVERY s i od razu przy STOP. OpenWebif
@@ -1099,6 +1102,26 @@ czyt_sprawdzaj=0; czyt_wl_od=0; czyt_brak_zgl=0
 tuner_pop=""; sid_pop=""; zmiana_od=0; stoi_od=""; sid_stop=""; os_start_stop=""
 obraz_od=""; obraz_zly=0; snr_zly=0; ber_zly=0; lock_zly=0; sygnal_ost=0
 stop_po_zmianie=0
+kanal_e2_up=""; tp=""
+
+# Kanal i transponder z OpenWebifu - tylko przy zdarzeniu (STOP, LOCK, OBRAZ,
+# SYGNAL), najwyzej raz na przebieg: OpenWebif chodzi w procesie enigma2
+# (~70 ms CPU). Oscam nie zna nazwy, gdy nie ma SID-u (strojenie, kanal
+# niekodowany) - w zdarzeniach bylo wtedy "- ?". Nazwa z currservice_station
+# (currservice_name to audycja), transponder z serviceref
+# 1:0:typ:SID:TSID:ONID:namespace - "tp TSID/namespace" do listy slabych
+# transponderow.
+kanal_uzupelnij() {
+    [ "$kanal_e2_up" = "$up" ] && return 0
+    kanal_e2_up="$up"; tp=""
+    _si=$(pobierz "$E2_URL/api/statusinfo") || return 0
+    _st=$(printf '%s' "$_si" | sed -n 's/.*"currservice_station": *"\([^"]*\)".*/\1/p')
+    _ref=$(printf '%s' "$_si" | sed -n 's/.*"currservice_serviceref": *"\([^"]*\)".*/\1/p')
+    _ts=$(printf '%s' "$_ref" | cut -d: -f5); _ns=$(printf '%s' "$_ref" | cut -d: -f7)
+    [ -n "$_ts" ] && [ -n "$_ns" ] && tp="tp $_ts/$_ns"
+    [ -z "$kanal" ] && [ -n "$_st" ] && kanal="$_st"
+    return 0
+}
 
 przebieg() {
     up=$(uptime_s)
@@ -1317,6 +1340,7 @@ przebieg() {
         if [ $((up - zmiana_od)) -le $((ECM_STALL + 2 * POLL)) ]; then
             stop_po_zmianie=1; _po_zm=" (zaraz po zmianie kanalu)"
         fi
+        kanal_uzupelnij
         zdarzenie STOP "$_dlaczego$_po_zm - ${kanal:-?}, lock ${lock:-?} SNR ${snr:-?}% BER ${ber:-?}, xres $xres, czytniki: ${czytniki:-?}"
     elif [ "$_stoi" -eq 0 ] && [ -n "$stoi_od" ]; then
         if [ "$tuner" -eq 0 ]; then _jak="standby"
@@ -1341,7 +1365,8 @@ przebieg() {
     # kanalu tuner jeszcze sie stroi)
     if [ "$_dekoduje" -eq 1 ] && [ -n "$lock" ] && [ $((up - zmiana_od)) -ge 10 ]; then
         if [ "$lock" -eq 0 ] && [ "$lock_zly" -ne 1 ]; then
-            lock_zly=1; zdarzenie LOCK "tuner bez synchronizacji ($_fe_st, SNR ${snr:-?}%, sila ${sila:-?}%) - ${kanal:-?}"
+            lock_zly=1; kanal_uzupelnij
+            zdarzenie LOCK "tuner bez synchronizacji ($_fe_st, SNR ${snr:-?}%, sila ${sila:-?}%) - ${kanal:-?}${tp:+, $tp}"
         elif [ "$lock" -eq 1 ] && [ "$lock_zly" -eq 1 ]; then
             lock_zly=0; zdarzenie LOCK-OK "synchronizacja wrocila (SNR ${snr:-?}%) - ${kanal:-?}"
         fi
@@ -1351,6 +1376,7 @@ przebieg() {
     if [ "$tuner" -eq 1 ] && [ "$xres" = 0 ] && [ "$_spokoj" -eq 1 ]; then
         if [ "$obraz_zly" -ne 1 ]; then
             obraz_zly=1; obraz_od="$up"
+            kanal_uzupelnij
             zdarzenie OBRAZ "tuner pracuje, dekoder bez obrazu (xres 0) - ${kanal:-?} (radio albo zamrozenie)"
         fi
     elif [ "$obraz_zly" -eq 1 ]; then
@@ -1361,13 +1387,15 @@ przebieg() {
     # SYGNAL - tylko z pomiarow, 10 s po zmianie tuner jeszcze sie stroi
     if [ "$_dekoduje" -eq 1 ] && [ -n "$snr" ] && [ $((up - zmiana_od)) -ge 10 ]; then
         if [ "$snr" -lt "$SNR_ALERT" ] && [ "$snr_zly" -ne 1 ]; then
-            snr_zly=1; zdarzenie SYGNAL "SNR ${snr}% < ${SNR_ALERT}% (sila ${sila:-?}%, BER ${ber:-?}) - ${kanal:-?}"
+            snr_zly=1; kanal_uzupelnij
+            zdarzenie SYGNAL "SNR ${snr}% < ${SNR_ALERT}% (sila ${sila:-?}%, BER ${ber:-?}) - ${kanal:-?}${tp:+, $tp}"
         elif [ "$snr" -ge $((SNR_ALERT + 5)) ] && [ "$snr_zly" -eq 1 ]; then
             snr_zly=0; zdarzenie SYGNAL-OK "SNR ${snr}% - ${kanal:-?}"
         fi
         if [ "$BER_ALERT" -gt 0 ] && [ -n "$ber" ]; then
             if [ "$ber" -gt "$BER_ALERT" ] && [ "$ber_zly" -ne 1 ]; then
-                ber_zly=1; zdarzenie SYGNAL "BER $ber > $BER_ALERT (SNR ${snr}%) - ${kanal:-?}"
+                ber_zly=1; kanal_uzupelnij
+                zdarzenie SYGNAL "BER $ber > $BER_ALERT (SNR ${snr}%) - ${kanal:-?}${tp:+, $tp}"
             elif [ "$ber" -le "$BER_ALERT" ] && [ "$ber_zly" -eq 1 ]; then
                 ber_zly=0; zdarzenie SYGNAL-OK "BER $ber - ${kanal:-?}"
             fi
