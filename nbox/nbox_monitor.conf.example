@@ -106,11 +106,12 @@ NAZWA="nBox Salon"
 #TV_PRZ_SIEC="brak polaczenia z serwerem kart"
 #TV_PRZ_ODRZUCA="dekoder odrzuca klucze"
 #TV_PRZ_SERWER="serwer kart nie przysyla kluczy"
-# Rada w STOP ({RADA}): TV_RADA_KANAL przy odrzucaniu kluczy i gdy obraz stanal
-# zaraz po zmianie kanalu (klucze nie ruszyly - czekanie nie pomoze), poza tym
-# TV_RADA_CZEKAJ.
+# Rada w STOP ({RADA}): przy odrzucaniu kluczy (dropping ECM) TV_RADA_ODRZUCA,
+# a TV_RADA_KANAL tylko po skoku zegara oscama (ZEGAR); gdy obraz stanal zaraz
+# po zmianie kanalu (klucze nie ruszyly) TV_RADA_KANAL; poza tym TV_RADA_CZEKAJ.
 #TV_RADA_CZEKAJ="Poczekaj - obraz powinien wrocic sam."
 #TV_RADA_KANAL="Zmien kanal i wroc."
+#TV_RADA_ODRZUCA="Obraz zwykle wraca sam w ciagu minuty - jesli nie, zmien kanal i wroc."
 
 # --- Siec --------------------------------------------------------------------
 # Ping tylko wtedy, gdy tuner pracuje (nie w standby), a zaden czytnik oscama

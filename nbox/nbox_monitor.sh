@@ -235,6 +235,7 @@ TV_TYP="${TV_TYP:-1}"             # okno enigmy: 1 informacja, 2 ostrzezenie, 3 
 [ -n "${TV_PRZ_SERWER+x}" ]  || TV_PRZ_SERWER='serwer kart nie przysyla kluczy'
 [ -n "${TV_RADA_CZEKAJ+x}" ] || TV_RADA_CZEKAJ='Poczekaj - obraz powinien wrocic sam.'
 [ -n "${TV_RADA_KANAL+x}" ]  || TV_RADA_KANAL='Zmien kanal i wroc.'
+[ -n "${TV_RADA_ODRZUCA+x}" ] || TV_RADA_ODRZUCA='Obraz zwykle wraca sam w ciagu minuty - jesli nie, zmien kanal i wroc.'
 [ -n "${TV_TXT_LOCK_CHWILOWY+x}" ] || TV_TXT_LOCK_CHWILOWY='Chwilowe zaklocenie odbioru z satelity.\nObraz powinien wrocic sam za kilka sekund.'
 
 RAM_DIR="${RAM_DIR:-/tmp/nbox_monitor}"
@@ -980,12 +981,22 @@ tv_tresc() {
             if [ -z "$os" ]; then _p="$TV_PRZ_OSCAM"
             elif [ -n "$czyt_problem" ] && [ "$czyt_ok" -eq 0 ]; then _p="$TV_PRZ_SIEC"
             elif [ "${n_drop:-0}" -gt 0 ]; then
-                # tak konczy sie skok zegara (ZEGAR): do zmiany kanalu
-                _p="$TV_PRZ_ODRZUCA"; _rada="$TV_RADA_KANAL"
+                _p="$TV_PRZ_ODRZUCA"
             else _p="$TV_PRZ_SERWER"
             fi
             # klucze nie ruszyly zaraz po zmianie kanalu - czekanie nie pomaga
-            [ "${stop_po_zmianie:-0}" -eq 1 ] && _rada="$TV_RADA_KANAL" ;;
+            [ "${stop_po_zmianie:-0}" -eq 1 ] && _rada="$TV_RADA_KANAL"
+            # dropping ECM: 25.09-01.10 w Podlipiu i na .41 wszystkie 7 razy
+            # klucze wrocily same po 30-50 s, takze zaraz po zmianie kanalu.
+            # Do zmiany kanalu stoi tylko po skoku zegara (ZEGAR tego startu
+            # oscama zgloszony).
+            if [ "${n_drop:-0}" -gt 0 ]; then
+                if [ -n "$zegar_zgloszony" ] && [ "$zegar_zgloszony" = "$os_start" ]; then
+                    _rada="$TV_RADA_KANAL"
+                else
+                    _rada="$TV_RADA_ODRZUCA"
+                fi
+            fi ;;
         LOCK)
             # Lock spada przy wysokim SNR na 10-30 s (Podlipie 28-30.09, SNR
             # 98-99%) - to chwilowe zaklocenie, nie antena ani pogoda; SNR
