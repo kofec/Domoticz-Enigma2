@@ -235,6 +235,7 @@ TV_TYP="${TV_TYP:-1}"             # okno enigmy: 1 informacja, 2 ostrzezenie, 3 
 [ -n "${TV_PRZ_SERWER+x}" ]  || TV_PRZ_SERWER='serwer kart nie przysyla kluczy'
 [ -n "${TV_RADA_CZEKAJ+x}" ] || TV_RADA_CZEKAJ='Poczekaj - obraz powinien wrocic sam.'
 [ -n "${TV_RADA_KANAL+x}" ]  || TV_RADA_KANAL='Zmien kanal i wroc.'
+[ -n "${TV_TXT_LOCK_CHWILOWY+x}" ] || TV_TXT_LOCK_CHWILOWY='Chwilowe zaklocenie odbioru z satelity.\nObraz powinien wrocic sam za kilka sekund.'
 
 RAM_DIR="${RAM_DIR:-/tmp/nbox_monitor}"
 PROBKI_MAX="${PROBKI_MAX:-2160}"       # linii probek (2160 x 10 s = 6 h) + .1
@@ -985,7 +986,15 @@ tv_tresc() {
             fi
             # klucze nie ruszyly zaraz po zmianie kanalu - czekanie nie pomaga
             [ "${stop_po_zmianie:-0}" -eq 1 ] && _rada="$TV_RADA_KANAL" ;;
-        LOCK)    _szablon="$TV_TXT_LOCK" ;;
+        LOCK)
+            # Lock spada przy wysokim SNR na 10-30 s (Podlipie 28-30.09, SNR
+            # 98-99%) - to chwilowe zaklocenie, nie antena ani pogoda; SNR
+            # ponizej progu SYGNAL = prawdziwy brak sygnalu.
+            if liczba "$snr" && [ "$snr" -ge "$SNR_ALERT" ]; then
+                _szablon="$TV_TXT_LOCK_CHWILOWY"
+            else
+                _szablon="$TV_TXT_LOCK"
+            fi ;;
         SYGNAL)  _szablon="$TV_TXT_SYGNAL" ;;
         CZYTNIK) _szablon="$TV_TXT_CZYTNIK" ;;
         WEBIF)

@@ -94,6 +94,8 @@ NAZWA="nBox Salon"
 # Wartosci domyslne:
 #TV_TXT_STOP="Obraz zatrzymany - kanal {KANAL}.\nPrzyczyna: {PRZYCZYNA}.\n{RADA}"
 #TV_TXT_LOCK="Brak sygnalu z satelity (SNR {SNR}%).\nMozliwe przyczyny: pogoda (snieg, ulewa), antena, kabel.\nObraz wroci razem z sygnalem."
+# LOCK przy SNR >= SNR_ALERT - lock spada na kilkanascie sekund przy dobrym sygnale:
+#TV_TXT_LOCK_CHWILOWY="Chwilowe zaklocenie odbioru z satelity.\nObraz powinien wrocic sam za kilka sekund."
 #TV_TXT_SYGNAL="Slaby sygnal z satelity (SNR {SNR}%).\nObraz moze sie rozpadac na kwadraty."
 #TV_TXT_CZYTNIK="Brak polaczenia z serwerem kart.\nKanaly kodowane moga nie dzialac."
 #TV_TXT_WEBIF="Program oscam w dekoderze nie odpowiada.\nKanaly kodowane moga nie dzialac."
