@@ -1119,7 +1119,8 @@ kanal_uzupelnij() {
     _ref=$(printf '%s' "$_si" | sed -n 's/.*"currservice_serviceref": *"\([^"]*\)".*/\1/p')
     _ts=$(printf '%s' "$_ref" | cut -d: -f5); _ns=$(printf '%s' "$_ref" | cut -d: -f7)
     [ -n "$_ts" ] && [ -n "$_ns" ] && tp="tp $_ts/$_ns"
-    [ -z "$kanal" ] && [ -n "$_st" ] && kanal="$_st"
+    # "SID 3DCD" = oscam zna tylko numer (tak jest na .41)
+    case "$kanal" in ''|"SID "*) [ -n "$_st" ] && kanal="$_st" ;; esac
     return 0
 }
 
