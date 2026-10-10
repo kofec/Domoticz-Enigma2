@@ -10,6 +10,8 @@
 #           3.0.0:  add support for channel name
 #           3.2.0:  address as host[:port]; the Port field became the switch for
 #                   nBox monitor devices (values pushed by nbox_monitor.sh)
+#           3.3.0:  Status shows Standby (Sleeping); Off only when the box
+#                   does not answer even ping
 #       
 #           Base on website: https://dream.reichholf.net/wiki/Enigma2:WebInterface
 #           Miscellaneous
@@ -79,7 +81,7 @@
 # Below is what will be displayed in Domoticz GUI under HW
 #
 """
-<plugin key="Enigma2" name="Enigma2 with Kodi Remote" author="kofec" version="3.2.0" wikilink="no" externallink=" https://dream.reichholf.net/wiki/Enigma2:WebInterface">
+<plugin key="Enigma2" name="Enigma2 with Kodi Remote" author="kofec" version="3.3.0" wikilink="no" externallink=" https://dream.reichholf.net/wiki/Enigma2:WebInterface">
     <params>
         <param field="Address" label="IP Address[:Port]" width="200px" required="true" default="127.0.0.1"/>
         <param field="Port" label="nBox monitor devices" width="75px">
@@ -117,6 +119,7 @@
 import Domoticz
 import sys
 import socket
+import subprocess
 import site
 from urllib.parse import quote  # NEW
 
@@ -152,6 +155,12 @@ except ImportError:
 # address field as host:port.
 MONITOR_OFF = "1"
 MONITOR_ON = "2"
+
+# nValue of the Status device (Media Player switch type) - Domoticz
+# _eMediaStatus, shown as Status "Off" / "On" / "Sleeping".
+MEDIA_OFF = 0
+MEDIA_ON = 1
+MEDIA_SLEEPING = 9
 
 # Extra units for nbox_monitor.sh - a script running on the box that pushes
 # its values here with JSON udevice. The plugin only creates them and never
@@ -293,9 +302,11 @@ class BasePlugin:
         if self.isConnected == True:
             if Parameters["Mode6"] == "Debug":
                 Domoticz.Log("Devices are connected - Initialisation")
-            UpdateDevice(self.UNIT_STATUS_REMOTE, 1, 'Enigma2 ON')
             self.EnigmaDetails()
-            UpdateDevice(self.UNIT_POWER_CONTROL, 40, '40')
+
+        # Status and Source come from the first poll (next heartbeat) - setting
+        # them to ON here showed a box in standby as ON after every restart.
+        self.pollCount = self.pollPeriod
 
         return True
 
@@ -334,6 +345,20 @@ class BasePlugin:
             Domoticz.Error("Missing module xmltodict - correct pathOfPackages in plugin.py")
             self.isConnected = False
         return
+
+    # The box answers ping - used only when the web interface does not answer,
+    # to tell "box off / unplugged" from "Enigma2 or its web interface down".
+    def isPinging(self):
+        try:
+            rc = subprocess.call(["ping", "-c", "1", "-W", "1", self.config["host"]],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 timeout=3)
+        except Exception as e:
+            Domoticz.Error("ping failed: " + str(e))
+            return False
+        if Parameters["Mode6"] == "Debug":
+            Domoticz.Log("ping rc: " + str(rc))
+        return rc == 0
 
     def EnigmaDetails(self):
         doc = self._get("about", timeout_sec=5)
@@ -426,40 +451,39 @@ class BasePlugin:
             self.pollCount += 1
             return
 
-        self.isAlive()
-        if self.isConnected:
-            doc = self._get("powerstate?", timeout_sec=4)
-            if not doc:
-                # treat as disconnected-ish for UI purposes
-                UpdateDevice(self.UNIT_STATUS_REMOTE, 0, "Enigma2 OFF")
-                UpdateDevice(self.UNIT_POWER_CONTROL, 0, "0")
-                self.pollCount = 0
-                return True
-
-            try:
-                instandby = str(doc["e2powerstate"]["e2instandby"])
-            except Exception:
-                Domoticz.Error("Unexpected /web/powerstate? response shape")
-                instandby = "true"
-
-            if Parameters["Mode6"] == "Debug":
-                Domoticz.Log('e2instandby => ' + str(instandby))
-
-            if instandby == "false":
-                UpdateDevice(self.UNIT_POWER_CONTROL, 40, "40")
-                if Parameters["Mode5"] == "StoreChannelName":
-                    ch = self.ChannelName()
-                    UpdateDevice(self.UNIT_STATUS_REMOTE, 1, ch if ch else "Enigma2 ON")
-                else:
-                    UpdateDevice(self.UNIT_STATUS_REMOTE, 1, "Enigma2 ON")
-            else:
-                UpdateDevice(self.UNIT_POWER_CONTROL, 10, "10")
-                UpdateDevice(self.UNIT_STATUS_REMOTE, 1, "Enigma2 ON")
-        else:
-            UpdateDevice(self.UNIT_STATUS_REMOTE, 0, "Enigma2 OFF")
-            UpdateDevice(self.UNIT_POWER_CONTROL, 0, "0")
-
         self.pollCount = 0
+        self.isAlive()
+        doc = self._get("powerstate?", timeout_sec=4) if self.isConnected else None
+        if not doc:
+            # Off only when the box does not answer even ping; a box that pings
+            # but has no web interface (Enigma2 restarting) keeps its last state.
+            if self.isPinging():
+                Domoticz.Log("Box answers ping, web interface does not - status unchanged")
+            else:
+                UpdateDevice(self.UNIT_STATUS_REMOTE, MEDIA_OFF, "Enigma2 OFF")
+                UpdateDevice(self.UNIT_POWER_CONTROL, 0, "0")
+            return True
+
+        try:
+            instandby = str(doc["e2powerstate"]["e2instandby"])
+        except Exception:
+            Domoticz.Error("Unexpected /web/powerstate? response shape")
+            instandby = "true"
+
+        if Parameters["Mode6"] == "Debug":
+            Domoticz.Log('e2instandby => ' + str(instandby))
+
+        if instandby == "false":
+            UpdateDevice(self.UNIT_POWER_CONTROL, 40, "40")
+            if Parameters["Mode5"] == "StoreChannelName":
+                ch = self.ChannelName()
+                UpdateDevice(self.UNIT_STATUS_REMOTE, MEDIA_ON, ch if ch else "Enigma2 ON")
+            else:
+                UpdateDevice(self.UNIT_STATUS_REMOTE, MEDIA_ON, "Enigma2 ON")
+        else:
+            UpdateDevice(self.UNIT_POWER_CONTROL, 10, "10")
+            UpdateDevice(self.UNIT_STATUS_REMOTE, MEDIA_SLEEPING, "Enigma2 Standby")
+
         return True
 
     # --- NEW helpers (deduplicate URL building + safer wget + XML parsing) ---
@@ -491,7 +515,7 @@ class BasePlugin:
             Domoticz.Error("Missing module xmltodict - cannot parse Enigma2 responses.")
             return None
 
-        headers = {"User-Agent": "Domoticz-Enigma2/3.2.0"}
+        headers = {"User-Agent": "Domoticz-Enigma2/3.3.0"}
         headers.update(self._auth_header())
 
         if Parameters["Mode6"] == "Debug":
