@@ -474,14 +474,14 @@ class BasePlugin:
             Domoticz.Log('e2instandby => ' + str(instandby))
 
         if instandby == "false":
-            UpdateDevice(self.UNIT_POWER_CONTROL, 40, "40")
+            UpdateDevice(self.UNIT_POWER_CONTROL, 2, "40")
             if Parameters["Mode5"] == "StoreChannelName":
                 ch = self.ChannelName()
                 UpdateDevice(self.UNIT_STATUS_REMOTE, MEDIA_ON, ch if ch else "Enigma2 ON")
             else:
                 UpdateDevice(self.UNIT_STATUS_REMOTE, MEDIA_ON, "Enigma2 ON")
         else:
-            UpdateDevice(self.UNIT_POWER_CONTROL, 10, "10")
+            UpdateDevice(self.UNIT_POWER_CONTROL, 2, "10")
             UpdateDevice(self.UNIT_STATUS_REMOTE, MEDIA_SLEEPING, "Enigma2 Standby")
 
         return True
