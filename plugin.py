@@ -201,6 +201,8 @@ class BasePlugin:
     isXmltodict = False
     pollPeriod = 0
     pollCount = 0
+    # Box pings but the web interface is silent - logged once, not every poll
+    webIfDown = False
 
     KEY = {
         #             : 116,    # Key "Power"
@@ -458,11 +460,18 @@ class BasePlugin:
             # Off only when the box does not answer even ping; a box that pings
             # but has no web interface (Enigma2 restarting) keeps its last state.
             if self.isPinging():
-                Domoticz.Log("Box answers ping, web interface does not - status unchanged")
+                if not self.webIfDown:
+                    Domoticz.Log("Box answers ping, web interface does not - status unchanged")
+                    self.webIfDown = True
             else:
+                self.webIfDown = False
                 UpdateDevice(self.UNIT_STATUS_REMOTE, MEDIA_OFF, "Enigma2 OFF")
                 UpdateDevice(self.UNIT_POWER_CONTROL, 0, "0")
             return True
+
+        if self.webIfDown:
+            Domoticz.Log("Web interface answers again")
+            self.webIfDown = False
 
         try:
             instandby = str(doc["e2powerstate"]["e2instandby"])
