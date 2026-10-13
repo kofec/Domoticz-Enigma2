@@ -47,7 +47,12 @@
 #              je dopiero przy pierwszym ECM. Przejscie w standby w trakcie
 #              CZYTNIK konczy je zdarzeniem CZYTNIK-KONIEC. UNKNOWN sie nie
 #              liczy takze wtedy, gdy nie ma ruchu ECM (po restarcie oscama
-#              bezczynny czytnik tak wlasnie wyglada).
+#              bezczynny czytnik tak wlasnie wyglada). Czytniki w ogole nie
+#              sa sprawdzane, gdy od ECM_CISZA s w logu oscama nie ma zadnej
+#              linii (ecm): dekoder nie prosi o klucze (kanal niekodowany albo
+#              spoza pakietu), wiec czytniki rozlaczaja sie z bezczynnosci -
+#              trwajace CZYTNIK konczy wtedy CZYTNIK-KONIEC. Przy awarii sieci
+#              linie (ecm) sa nadal (not found, timeout, rejected group).
 #              CZYTNIK-OK po powrocie. Przy kilku czytnikach zdarzenie mowi,
 #              ile innych jest polaczonych; naprawa sieci i przyczyna "brak
 #              polaczenia z serwerem kart" dopiero, gdy nie ma zadnego -
@@ -72,8 +77,8 @@
 #              odnowienie DHCP) i zostaly dodane z powrotem.
 #   NAPRAWA    od NAPRAWA_PO s zaden czytnik nie jest polaczony: wynik
 #              diagnozy (brama, internet, klient DHCP) i podjeta akcja -
-#              patrz sekcja Siec. W standby nie ma CZYTNIK, wiec nie ma
-#              i naprawy.
+#              patrz sekcja Siec. W standby i bez ruchu ECM nie ma CZYTNIK,
+#              wiec nie ma i naprawy.
 #   REBOOT     siec (brama albo internet) nie wrocila przez REBOOT_PO s -
 #              restart boxa.
 #
@@ -206,6 +211,7 @@ SIGNAL_EVERY="${SIGNAL_EVERY:-60}" # s, co ile najwyzej pytac OpenWebif (zapas)
 REPORT="${REPORT:-60}"            # s, co ile wartosci zbiorcze do Domoticza
 ROTACJA="${ROTACJA:-300}"         # s, co ile sprawdzac rozmiar logow w RAM-ie
 ECM_STALL="${ECM_STALL:-30}"      # s bez nowego CW = STOP (cykl ECM ~12 s)
+ECM_CISZA="${ECM_CISZA:-90}"      # s bez linii (ecm) = dekoder nie prosi o klucze, czytniki nie sprawdzane
 SNR_ALERT="${SNR_ALERT:-50}"      # %, ponizej = zdarzenie SYGNAL
 BER_ALERT="${BER_ALERT:-0}"       # surowy BER z drajwera, powyzej = SYGNAL;
                                   # 0 = bez alarmu (skala nieznana: zdrowy
@@ -1118,7 +1124,7 @@ ostatnia_linia=""; e2p_pop=""
 os_start_pop=""; webif_pop=""; zegar_zgloszony=""
 os_start=""; dvb_sid=""; czytniki=""; kanal=""; os_ok=0
 czyt_zle=0; czyt_zgloszony=0; czyt_ostatnie_ok=""; czyt_problem=""; czyt_od=""; czyt_ok=0
-czyt_sprawdzaj=0; czyt_wl_od=0; czyt_brak_zgl=0
+czyt_sprawdzaj=0; czyt_wl_od=0; czyt_brak_zgl=0; czyt_bez_ecm=0; ecm_ost=""
 tuner_pop=""; sid_pop=""; zmiana_od=0; stoi_od=""; sid_stop=""; os_start_stop=""
 obraz_od=""; obraz_zly=0; snr_zly=0; ber_zly=0; lock_zly=0; sygnal_ost=0
 stop_po_zmianie=0
@@ -1200,6 +1206,7 @@ przebieg() {
     n_drop=$(printf '%s\n' "$_log" | sed -n 's/^D //p');  n_drop=${n_drop:-0}
     ecm_ms=$(printf '%s\n' "$_log" | sed -n 's/^M //p');  ecm_ms=${ecm_ms:-0}
     n_ecm=$(printf '%s\n' "$_log" | sed -n 's/^C //p');   n_ecm=${n_ecm:-0}
+    [ "$n_ecm" -gt 0 ] && ecm_ost="$up"
     if [ "$n_err" -gt 0 ]; then
         _pierwsza=$(printf '%s\n' "$_log" | sed -n 's/^E //p' | head -n 1)
         if [ "$TRYB" = raz ]; then
@@ -1239,10 +1246,19 @@ przebieg() {
     # w Ludyni dawalo to cala noc NAPRAWA co 2 min. Po wlaczeniu dekodera
     # ECM_STALL s spokoju: czytniki lacza sie dopiero przy pierwszym ECM.
     # UNKNOWN przy braku ruchu ECM to czytnik, ktory jeszcze sie nie laczyl.
-    czyt_sprawdzaj=0
+    # Bez linii (ecm) od ECM_CISZA s dekoder nie prosi o klucze - czytniki
+    # spia z bezczynnosci i to nie awaria (Piotr 2026-10-13 na CANAL+ DOMO HD:
+    # 70 min CZYTNIK i co 2 min NAPRAWA "siec w porzadku").
+    czyt_sprawdzaj=0; czyt_bez_ecm=0
     if [ "$tuner" -eq 1 ]; then
         [ "$tuner_pop" = 0 ] && czyt_wl_od="$up"
-        [ $((up - czyt_wl_od)) -ge "$ECM_STALL" ] && czyt_sprawdzaj=1
+        if [ $((up - czyt_wl_od)) -ge "$ECM_STALL" ]; then
+            if [ -n "$ecm_ost" ] && [ $((up - ecm_ost)) -lt "$ECM_CISZA" ]; then
+                czyt_sprawdzaj=1
+            else
+                czyt_bez_ecm=1
+            fi
+        fi
     fi
     if [ "$os_ok" -eq 1 ]; then
         # ile czytnikow jest polaczonych - klucze z ktoregokolwiek = siec dziala
@@ -1252,7 +1268,11 @@ przebieg() {
         czyt_zle=0; czyt_od=""; czyt_problem=""
         if [ "$czyt_zgloszony" -eq 1 ]; then
             czyt_zgloszony=0
-            zdarzenie CZYTNIK-KONIEC "dekoder w standby - czytniki nie sprawdzane (${czytniki:-?})"
+            if [ "$czyt_bez_ecm" -eq 1 ]; then
+                zdarzenie CZYTNIK-KONIEC "dekoder nie prosi o klucze (brak linii ecm od ${ECM_CISZA}s) - czytniki nie sprawdzane (${czytniki:-?})"
+            else
+                zdarzenie CZYTNIK-KONIEC "dekoder w standby - czytniki nie sprawdzane (${czytniki:-?})"
+            fi
         fi
     elif [ "$os_ok" -eq 1 ]; then
         if [ -z "$czytniki" ]; then
@@ -1443,7 +1463,7 @@ dekoder      tuner: $([ "$tuner" -eq 1 ] && echo pracuje || echo standby)  (enig
 sygnal       $([ -n "$zrodlo" ] && echo "lock=${lock:--}  SNR=${snr:--}%  sila=${sila:--}%  BER=${ber:--}  (zrodlo: $zrodlo)" || echo "brak odczytu - tuner nie pracuje, OpenWebif nie pytany")
 oscam        $([ -z "$os" ] && echo "NIE ODPOWIADA" || { [ "$os_ok" -eq 1 ] && echo odpowiada || echo "odpowiada NIECZYTELNIE (bez starttime)"; })  start=${os_start:-?}
   dvbapi     SID=${dvb_sid:--}  kanal=${kanal:--}
-  czytniki   ${czytniki:--}  -> $(if [ "$czyt_sprawdzaj" -eq 0 ]; then echo "nie sprawdzane - dekoder w standby albo tuz po wlaczeniu"; elif [ -n "$czyt_problem" ]; then echo "problem: $czyt_problem (CZYTNIK dopiero po 2 probkach; polaczonych: $czyt_ok - $([ "$czyt_ok" -gt 0 ] && echo bez naprawy sieci || echo naprawa sieci po NAPRAWA_PO s))"; else echo "ok (linii ecm: $n_ecm)"; fi)
+  czytniki   ${czytniki:--}  -> $(if [ "$czyt_bez_ecm" -eq 1 ]; then echo "nie sprawdzane - dekoder nie prosi o klucze (brak linii ecm od ${ECM_CISZA}s)"; elif [ "$czyt_sprawdzaj" -eq 0 ]; then echo "nie sprawdzane - dekoder w standby albo tuz po wlaczeniu"; elif [ -n "$czyt_problem" ]; then echo "problem: $czyt_problem (CZYTNIK dopiero po 2 probkach; polaczonych: $czyt_ok - $([ "$czyt_ok" -gt 0 ] && echo bez naprawy sieci || echo naprawa sieci po NAPRAWA_PO s))"; else echo "ok (linii ecm: $n_ecm)"; fi)
 ecm.info     $([ -n "$ecm_wiek" ] && echo "${ecm_wiek}s temu" || echo "brak pliku")
 log          linii: $n_nowe, bledow: $n_err, w tym dropping ECM: $n_drop, max czas ECM: ${ecm_ms} ms
 incydent     $([ -n "$inc_nowy" ] && echo "powstalby plik zdarzenie_..._${inc_nowy}.log" || echo "nie (brak zdarzenia z: $INCYDENT_TYPY)")
