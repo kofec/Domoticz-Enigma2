@@ -267,6 +267,10 @@ ECM_CYCLE_MAX="${ECM_CYCLE_MAX:-20000}" # ms; "ECM CYCLE" powyzej = blad (norma 
 # Typy urzadzen opisuje nbox_monitor.conf.example.
 DOMOTICZ_PORT="${DOMOTICZ_PORT:-8080}"
 DOMOTICZ_TIMEOUT="${DOMOTICZ_TIMEOUT:-3}"  # s; jedna proba - petla co POLL s nie moze stac
+# s, tylko dla powiadomien: Domoticz odpowiada dopiero po wyslaniu Telegrama
+# (Podlipie 2026-10-14 22:18:47: 4 s), a przy 3 s box uznawal to za blad
+# i raport() wysylal to samo drugi raz
+DOMOTICZ_TIMEOUT_POWIADOM="${DOMOTICZ_TIMEOUT_POWIADOM:-15}"
 DZ_ZDARZENIE="${DZ_ZDARZENIE:-}"  # tekst: ostatnie zdarzenie
 DZ_SNR="${DZ_SNR:-}"              # % min SNR
 DZ_SILA="${DZ_SILA:-}"            # % min sily sygnalu (tylko z nbox_sygnal.py)
@@ -482,13 +486,13 @@ dz_log() {
 }
 
 dz_request() {
-    wget -q -T "$DOMOTICZ_TIMEOUT" -O /dev/null "http://${DOMOTICZ_HOST}:${DOMOTICZ_PORT}/json.htm?$1" 2>/dev/null && return 0
+    wget -q -T "${2:-$DOMOTICZ_TIMEOUT}" -O /dev/null "http://${DOMOTICZ_HOST}:${DOMOTICZ_PORT}/json.htm?$1" 2>/dev/null && return 0
     dz_log "${DOMOTICZ_HOST}:${DOMOTICZ_PORT} nie odpowiada: $(printf '%s' "$1" | cut -c1-80)"
     return 1
 }
 
 dz_update() { dz_request "type=command&param=udevice&idx=$1&nvalue=0&svalue=$2"; }
-dz_notify() { dz_request "type=command&param=sendnotification&subject=$(url_kod "$1")&body=$(url_kod "$2")"; }
+dz_notify() { dz_request "type=command&param=sendnotification&subject=$(url_kod "$1")&body=$(url_kod "$2")" "$DOMOTICZ_TIMEOUT_POWIADOM"; }
 
 # idx z konfiguracji ($1 wartosc, $2 nazwa zmiennej): liczba albo nic
 dz_idx() {

@@ -49,6 +49,9 @@ NAZWA="nBox Salon"
 #REPORT=60
 # Minimalny odstep powiadomien jednego rodzaju (s).
 #NOTIFY_GAP=600
+# Czas na odpowiedz Domoticza przy powiadomieniu (s) - odpowiada dopiero po
+# wyslaniu Telegrama; za krotki = to samo powiadomienie drugi raz.
+#DOMOTICZ_TIMEOUT_POWIADOM=15
 # Temperatura dysku: co ile s, gdy sie kreci (uspionego smartctl nie budzi).
 #HDD_TEMP_CO=1800
 
