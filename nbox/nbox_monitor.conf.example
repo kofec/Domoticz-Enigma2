@@ -49,6 +49,10 @@ NAZWA="nBox Salon"
 #REPORT=60
 # Minimalny odstep powiadomien jednego rodzaju (s).
 #NOTIFY_GAP=600
+# STOP, LOCK i CZYTNIK na telefon dopiero, gdy trwaja tyle sekund; krotsze
+# (np. "dropping ECM", ktore wraca samo w minute) zostaja tylko w logach.
+# 0 = od razu.
+#POWIADOM_PO=300
 # Czas na odpowiedz Domoticza przy powiadomieniu (s) - odpowiada dopiero po
 # wyslaniu Telegrama; za krotki = to samo powiadomienie drugi raz.
 #DOMOTICZ_TIMEOUT_POWIADOM=15

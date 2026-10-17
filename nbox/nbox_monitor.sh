@@ -150,7 +150,10 @@
 #                                ostatnie zdarzenie do urzadzenia tekstowego;
 #                                STOP/LOCK/CZYTNIK/WEBIF/ENIGMA jako
 #                                powiadomienie "NAZWA: co sie stalo", NAZWA
-#                                takze na poczatku tresci. CZYTNIK tylko, gdy
+#                                takze na poczatku tresci. STOP, LOCK
+#                                i CZYTNIK dopiero, gdy trwaja POWIADOM_PO s
+#                                (w tresci "trwa od N s"); skonczone
+#                                wczesniej zostaja tylko w logach. CZYTNIK tylko, gdy
 #                                zaden czytnik nie jest polaczony (jesli
 #                                drugi padnie pozniej, CZYTNIK idzie jeszcze
 #                                raz, juz z powiadomieniem).
@@ -217,6 +220,9 @@ BER_ALERT="${BER_ALERT:-0}"       # surowy BER z drajwera, powyzej = SYGNAL;
                                   # 0 = bez alarmu (skala nieznana: zdrowy
                                   # sygnal dal 5, OpenWebif pokazal 0)
 NOTIFY_GAP="${NOTIFY_GAP:-600}"   # s, min. odstep powiadomien jednego typu
+POWIADOM_PO="${POWIADOM_PO:-300}" # s; STOP, LOCK i CZYTNIK na telefon dopiero,
+                                  # gdy trwaja tyle - krotsze tylko w logach
+                                  # (0 = od razu, jak przed 2026-10-17)
 
 TV_TYPY="${TV_TYPY-STOP LOCK}"    # zdarzenia na ekranie TV; "" = wcale
 TV_GAP="${TV_GAP:-600}"           # s, min. odstep komunikatow na ekranie
@@ -679,10 +685,43 @@ zdarzenie() {
     # dwoch oscam sam zamyka bezczynny ("disconnected: reason inactivity"),
     # gdy klucze ida z drugiego - 2026-09-24 u Dziadka 4 powiadomienia
     # w godzine przy dzialajacym newcamd. W zdarzenia.log zostaje.
+    # STOP, LOCK i CZYTNIK czekaja POWIADOM_PO s (odlozone()) - wiekszosc
+    # "dropping ECM" wraca sama w ciagu minuty, a powiadomienie o czyms, co
+    # juz minelo, nic nie daje (Ludynia 13-17.10: 23 powiadomienia).
     case "$1" in
-        CZYTNIK) [ "${czyt_ok:-0}" -eq 0 ] && { zd_wazne="$1"; zd_wazny_txt="$2"; } ;;
-        STOP|LOCK|WEBIF|ENIGMA) zd_wazne="$1"; zd_wazny_txt="$2" ;;
+        CZYTNIK) [ "${czyt_ok:-0}" -eq 0 ] && [ -z "$odl_czyt" ] && { odl_czyt=$(uptime_s); odl_czyt_txt="$2"; } ;;
+        STOP)    [ -z "$odl_stop" ] && { odl_stop=$(uptime_s); odl_stop_txt="$2"; } ;;
+        LOCK)    [ -z "$odl_lock" ] && { odl_lock=$(uptime_s); odl_lock_txt="$2"; } ;;
+        WEBIF|ENIGMA) zd_wazne="$1"; zd_wazny_txt="$2" ;;
     esac
+    return 0
+}
+
+# Odlozone powiadomienia - co przebieg. Zdarzenie, ktore sie skonczylo
+# (STOP-KONIEC, LOCK-OK, CZYTNIK-OK / -KONIEC, albo drugi czytnik wrocil),
+# znika bez powiadomienia; trwajace POWIADOM_PO s idzie z czasem trwania.
+odl_stop=""; odl_stop_txt=""; odl_lock=""; odl_lock_txt=""; odl_czyt=""; odl_czyt_txt=""
+odlozone() {
+    # _o, nie _t - powiadom() nadpisuje _t
+    _o=$(uptime_s)
+    if [ -n "$odl_stop" ]; then
+        if [ -z "$stoi_od" ]; then odl_stop=""
+        elif [ $((_o - odl_stop)) -ge "$POWIADOM_PO" ]; then
+            powiadom STOP "$odl_stop_txt - trwa od $((_o - odl_stop))s"; odl_stop=""
+        fi
+    fi
+    if [ -n "$odl_lock" ]; then
+        if [ "$lock_zly" -ne 1 ]; then odl_lock=""
+        elif [ $((_o - odl_lock)) -ge "$POWIADOM_PO" ]; then
+            powiadom LOCK "$odl_lock_txt - trwa od $((_o - odl_lock))s"; odl_lock=""
+        fi
+    fi
+    if [ -n "$odl_czyt" ]; then
+        if [ "$czyt_zgloszony" -ne 1 ] || [ "$czyt_ok" -gt 0 ]; then odl_czyt=""
+        elif [ $((_o - odl_czyt)) -ge "$POWIADOM_PO" ]; then
+            powiadom CZYTNIK "$odl_czyt_txt - trwa od $((_o - odl_czyt))s"; odl_czyt=""
+        fi
+    fi
     return 0
 }
 
@@ -1077,6 +1116,7 @@ po_przebiegu() {
     [ -n "$inc_nowy" ] && incydent_nowy
     # ekran przed Domoticzem: martwy Domoticz to kilka sekund czekania
     [ -n "$tv_nowy" ] && tv_pokaz
+    [ "$DOMOTICZ" -eq 1 ] && odlozone
     [ "$zd_liczba" -gt 0 ] || return 0
     if [ "$DOMOTICZ" -eq 1 ]; then
         [ -n "$idx_zdarzenie" ] && dz_tekst "$zd_ostatnie"
