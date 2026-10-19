@@ -1,0 +1,2 @@
+# Testy uruchamiane dash-em takze na Windows - bez CR
+nbox/test_*.sh text eol=lf

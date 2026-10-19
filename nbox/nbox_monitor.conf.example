@@ -131,8 +131,15 @@ NAZWA="nBox Salon"
 #NAPRAWA_CO=120       # s miedzy diagnozami
 #REBOOT_PO=3600       # 0 = nigdy
 #PING_INTERNET="8.8.8.8 1.1.1.1"
+# Niezaleznie od tunera, takze w standby: brak adresu IPv4 na SIEC_DEV albo
+# trasy default przez SIEC_BRAK_PO s = SIEC-BRAK i klient DHCP od nowa (bez
+# DHCP restart sieci), dalej co SIEC_BRAK_CO s jak NAPRAWA, po REBOOT_PO s
+# restart boxa. Powrot sieci = SIEC-OK z powiadomieniem.
+#SIEC_BRAK_PO=300     # 0 = bez tej kontroli
+#SIEC_BRAK_CO=300
 #SIEC_DEV=eth0
 #DHCP=auto            # auto / 1 / 0; auto: tak, gdy przy starcie dziala udhcpc
+                      # albo /etc/network/interfaces ma "iface SIEC_DEV inet dhcp"
 # Drugi, staly adres na SIEC_DEV - np. box za relayd, niedostepny pod
 # adresem z DHCP; dodawany z powrotem, gdy zniknie:
 #RELAY_ADDRESS="192.168.50.2/24"

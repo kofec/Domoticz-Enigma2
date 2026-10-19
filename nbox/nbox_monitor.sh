@@ -79,8 +79,14 @@
 #              diagnozy (brama, internet, klient DHCP) i podjeta akcja -
 #              patrz sekcja Siec. W standby i bez ruchu ECM nie ma CZYTNIK,
 #              wiec nie ma i naprawy.
+#   SIEC-BRAK  od SIEC_BRAK_PO s na SIEC_DEV nie ma adresu IPv4 albo trasy
+#              default - takze w standby, niezaleznie od tunera i czytnikow.
+#              Pierwsza akcja: klient DHCP od nowa (bez DHCP restart sieci),
+#              kolejne co SIEC_BRAK_CO s jak NAPRAWA. SIEC-OK po powrocie,
+#              z powiadomieniem (SIEC-BRAK nie ma jak go wyslac).
 #   REBOOT     siec (brama albo internet) nie wrocila przez REBOOT_PO s -
-#              restart boxa.
+#              restart boxa; przy SIEC-BRAK: brak adresu albo trasy przez
+#              REBOOT_PO s.
 #
 # Zrodla - wszystko lokalne i tylko do odczytu, najtansze najpierw:
 #   /proc/<enigma2>/fd       czy enigma2 trzyma /dev/dvb/adapter0/frontend*
@@ -193,7 +199,8 @@
 #
 # Siec - zastepuje prosty monitor pingujacy serwer kart i jako jedyna czesc
 # cos na boxie zmienia. Bez problemu czytnika nic nie pinguje, pilnuje tylko
-# adresu RELAY_ADDRESS i tras z TRASY. NAPRAWA=0 zostawia sama obserwacje.
+# adresu RELAY_ADDRESS i tras z TRASY oraz (SIEC-BRAK) czy box ma adres
+# i brame. NAPRAWA=0 zostawia sama obserwacje.
 #
 # Pulapki busyboxowego awk na nBoxie (oba wywalaja CALY program awk):
 #   - brak operatora "^" ("Math support is not compiled in"),
@@ -318,8 +325,12 @@ NAPRAWA_PO="${NAPRAWA_PO:-40}"     # s problemu czytnika do pierwszej diagnozy
 NAPRAWA_CO="${NAPRAWA_CO:-120}"    # s miedzy kolejnymi diagnozami
 REBOOT_PO="${REBOOT_PO:-3600}"     # s bez bramy albo internetu do restartu; 0 = nigdy
 PING_INTERNET="${PING_INTERNET:-8.8.8.8 1.1.1.1}"
+SIEC_BRAK_PO="${SIEC_BRAK_PO:-300}" # s bez adresu albo trasy default do SIEC-BRAK; 0 = bez tej kontroli
+SIEC_BRAK_CO="${SIEC_BRAK_CO:-300}" # s miedzy kolejnymi naprawami SIEC-BRAK
 SIEC_DEV="${SIEC_DEV:-eth0}"
 DHCP="${DHCP:-auto}"               # auto: tak, gdy przy starcie dziala udhcpc na SIEC_DEV
+                                   # albo INTERFACES ma "iface SIEC_DEV inet dhcp"
+INTERFACES="${INTERFACES:-/etc/network/interfaces}"
 DHCP_PID="${DHCP_PID:-/var/run/udhcpc.${SIEC_DEV}.pid}"
 RELAY_ADDRESS="${RELAY_ADDRESS:-}" # drugi, staly adres, np. 192.168.50.2/24
 TRASY="${TRASY:-}"                 # "siec,brama ...", np. 10.8.0.0/24,192.168.1.3
@@ -653,7 +664,7 @@ wentylator() {
 # --- Zdarzenia -------------------------------------------------------------
 
 zd_liczba=0; zd_ostatnie=""; zd_wazne=""; zd_wazny_txt=""
-pow_stop=""; pow_czytnik=""; pow_inne=""
+pow_stop=""; pow_czytnik=""; pow_inne=""; pow_siec=""
 inc_nowy=""; inc_txt=""; inc_koniec=""; inc_plik=""; inc_od=0
 inc_ost=""; inc_ost_typ=""
 tv_nowy=""; tv_opis=""; tv_ost=""
@@ -692,7 +703,7 @@ zdarzenie() {
         CZYTNIK) [ "${czyt_ok:-0}" -eq 0 ] && [ -z "$odl_czyt" ] && { odl_czyt=$(uptime_s); odl_czyt_txt="$2"; } ;;
         STOP)    [ -z "$odl_stop" ] && { odl_stop=$(uptime_s); odl_stop_txt="$2"; } ;;
         LOCK)    [ -z "$odl_lock" ] && { odl_lock=$(uptime_s); odl_lock_txt="$2"; } ;;
-        WEBIF|ENIGMA) zd_wazne="$1"; zd_wazny_txt="$2" ;;
+        WEBIF|ENIGMA|SIEC-OK) zd_wazne="$1"; zd_wazny_txt="$2" ;;
     esac
     return 0
 }
@@ -841,6 +852,13 @@ dhcp_dziala() {
     [ -f "$DHCP_PID" ] && kill -0 "$(cat "$DHCP_PID" 2>/dev/null)" 2>/dev/null
 }
 
+# Do DHCP=auto: klient dziala albo SIEC_DEV ma w INTERFACES "inet dhcp"
+dhcp_auto() {
+    dhcp_dziala && return 0
+    awk -v d="$SIEC_DEV" '$1 == "iface" && $2 == d && $3 == "inet" && $4 == "dhcp" { f = 1 }
+        END { exit !f }' "$INTERFACES" 2>/dev/null
+}
+
 # Jeden meldunek o tym samym bledzie, nie co POLL s
 siec_ost=""
 siec_meld() {
@@ -899,14 +917,29 @@ diagnoza() {
     fi
 }
 
-# Jak w poprzednim monitorze: zabic stary klient i uruchomic nowy; -n konczy
-# go bez dzierzawy, po dzierzawie sam przechodzi w tlo.
+# Zabic stary klient i uruchomic nowy. -b, nie -n jak w ifup (GraterliaOS:
+# "udhcpc -R -n"): -n konczy klienta po 3 nieudanych probach (~10 s), a -b
+# przechodzi wtedy w tlo i prosi o dzierzawe dalej, co -A s (domyslnie 20).
+# Klient z -n, ktory wystartowal przed routerem, nie wroci juz sam - Ludynia
+# 2026-10-17 po zaniku pradu: Babcia ~10 h bez adresu.
 dhcp_od_nowa() {
     kill "$(cat "$DHCP_PID" 2>/dev/null)" 2>/dev/null
     sleep 1
     killall udhcpc 2>/dev/null
     sleep 1
-    udhcpc -R -n -p "$DHCP_PID" -i "$SIEC_DEV" >/dev/null 2>&1
+    udhcpc -R -b -p "$DHCP_PID" -i "$SIEC_DEV" >/dev/null 2>&1
+}
+
+siec_od_nowa() { /etc/init.d/network restart >/dev/null 2>&1; }
+
+# Akcja z diagnozy ($1: dhcp / siec / pusto); po niej adres relay i trasy
+siec_akcja() {
+    case "$1" in
+        dhcp) dhcp_od_nowa ;;
+        siec) siec_od_nowa ;;
+        *)    return 0 ;;
+    esac
+    siec_pilnuj
 }
 
 restart_boxa() {
@@ -929,6 +962,8 @@ naprawa_krok() {
         naprawa_ost=""; siec_zla_od=""
         return 0
     fi
+    # box bez adresu albo bramy - naprawia siec_brak_krok, nie dwa razy
+    [ "$sb_zgl" -eq 1 ] && return 0
     [ "$up" -ge "$NAPRAWA_START" ] || return 0
     _dt=$((up - czyt_od))
     [ "$_dt" -ge "$NAPRAWA_PO" ] || return 0
@@ -946,11 +981,61 @@ naprawa_krok() {
         return 0
     fi
     zdarzenie NAPRAWA "czytnik od ${_dt}s: $d_txt -> $d_opis"
-    case "$d_akcja" in
-        dhcp) dhcp_od_nowa ;;
-        siec) /etc/init.d/network restart >/dev/null 2>&1 ;;
-    esac
-    [ -n "$d_akcja" ] && siec_pilnuj
+    siec_akcja "$d_akcja"
+    return 0
+}
+
+# --- SIEC-BRAK: box bez adresu albo bramy ------------------------------------
+#
+# NAPRAWA rusza tylko przy problemie czytnika, czyli przy pracujacym tunerze,
+# wiec box w standby bez sieci nie naprawial sie wcale, a sam o tym nie
+# powiadomi. Ludynia 2026-10-17 po zaniku pradu: oba boxy wstaly bez adresu,
+# Babcia na ~10 h - do wlaczenia TV (NAPRAWA "restart sieci"), Dziadek na
+# ~8 h - do odciecia zasilania. Klient DHCP z ifup konczy sie bez dzierzawy
+# (dhcp_od_nowa), a monitor startuje z rc.local, gdy klienta juz nie ma -
+# DHCP=auto dawalo wtedy "statyczny", stad INTERFACES.
+# Co przebieg same odczyty (ip addr, ip route), bez pingow. Po SIEC_BRAK_PO s
+# braku: klient DHCP od nowa (bez DHCP restart sieci), dalej co SIEC_BRAK_CO s
+# diagnoza i akcja jak w NAPRAWA, po REBOOT_PO s restart boxa.
+
+# Pierwszy adres IPv4 na SIEC_DEV poza RELAY_ADDRESS (relay to nie siec z DHCP)
+adres() {
+    ip -4 addr show dev "$SIEC_DEV" 2>/dev/null | awk -v r="${RELAY_ADDRESS%/*}" '
+        $1 == "inet" { split($2, a, "/"); if (a[1] != r) { print $2; exit } }'
+}
+
+sb_od=""; sb_od_godz=""; sb_zgl=0; sb_ost=""; sb_napraw=0
+siec_brak_krok() {
+    [ "$SIEC_BRAK_PO" -gt 0 ] || return 0
+    sb_adres=$(adres); sb_gw=$(brama)
+    if [ -n "$sb_adres" ] && [ -n "$sb_gw" ]; then
+        if [ "$sb_zgl" -eq 1 ]; then
+            zdarzenie SIEC-OK "adres $sb_adres, brama $sb_gw - box byl bez sieci $(( (up - sb_od) / 60 )) min (od $sb_od_godz), napraw: $sb_napraw"
+        fi
+        sb_od=""; sb_zgl=0; sb_ost=""; sb_napraw=0
+        return 0
+    fi
+    if [ -z "$sb_od" ]; then sb_od="$up"; sb_od_godz=$(date +%H:%M); fi
+    _sb_dt=$((up - sb_od))
+    [ "$_sb_dt" -ge "$SIEC_BRAK_PO" ] || return 0
+    [ -n "$sb_ost" ] && [ $((up - sb_ost)) -lt "$SIEC_BRAK_CO" ] && return 0
+    sb_ost="$up"; sb_zgl=1
+    _sb_txt="adres ${sb_adres:-BRAK} na $SIEC_DEV, brama ${sb_gw:-BRAK} od ${_sb_dt}s"
+    if [ "$REBOOT_PO" -gt 0 ] && [ "$_sb_dt" -ge "$REBOOT_PO" ]; then
+        restart_boxa "$_sb_txt"
+        return 0
+    fi
+    if [ "$sb_napraw" -eq 0 ]; then
+        d_txt="dhcp=$([ "$DHCP" = 1 ] && echo tak || echo statyczny)"
+        if [ "$DHCP" = 1 ]; then d_akcja=dhcp; d_opis="klient DHCP od nowa"
+        else d_akcja=siec; d_opis="restart sieci"
+        fi
+    else
+        diagnoza
+    fi
+    sb_napraw=$((sb_napraw + 1))
+    zdarzenie SIEC-BRAK "$_sb_txt: $d_txt -> $d_opis (naprawa $sb_napraw)"
+    siec_akcja "$d_akcja"
     return 0
 }
 
@@ -970,6 +1055,7 @@ opis_krotki() {
             else echo "brak polaczenia z serwerem kart"
             fi ;;
         ENIGMA)  echo "enigma2 uruchomiona ponownie" ;;
+        SIEC-OK) echo "box byl bez sieci, juz ja ma" ;;
         WEBIF)
             case "$2" in
                 *BRAK*) echo "oscam albo enigma2 nie odpowiada" ;;
@@ -982,15 +1068,19 @@ opis_krotki() {
 zal_temat=""; zal_tresc=""
 powiadom() {
     _t=$(uptime_s)
+    # SIEC-OK osobno: po zaniku pradu WEBIF z tego samego startu nie moze go
+    # zablokowac, a raz na awarie i tak wychodzi
     case "$1" in
         STOP|LOCK) _ost="$pow_stop" ;;
         CZYTNIK)   _ost="$pow_czytnik" ;;
+        SIEC-OK)   _ost="$pow_siec" ;;
         *)         _ost="$pow_inne" ;;
     esac
     [ -n "$_ost" ] && [ $((_t - _ost)) -lt "$NOTIFY_GAP" ] && return 0
     case "$1" in
         STOP|LOCK) pow_stop="$_t" ;;
         CZYTNIK)   pow_czytnik="$_t" ;;
+        SIEC-OK)   pow_siec="$_t" ;;
         *)         pow_inne="$_t" ;;
     esac
     _temat="$NAZWA: $(opis_krotki "$1" "$2")"
@@ -1351,10 +1441,14 @@ przebieg() {
         fi
     fi
 
-    # Siec: adres relay i trasy co przebieg, naprawa tylko przy problemie
-    # czytnika (w --raz diagnoza idzie osobno, na koniec)
+    # Siec: adres relay i trasy co przebieg, brak adresu albo bramy takze
+    # w standby, naprawa przy problemie czytnika (w --raz diagnoza idzie
+    # osobno, na koniec)
     siec_pilnuj
-    [ "$NAPRAWA" -eq 1 ] && [ "$TRYB" != raz ] && naprawa_krok
+    if [ "$NAPRAWA" -eq 1 ] && [ "$TRYB" != raz ]; then
+        siec_brak_krok
+        naprawa_krok
+    fi
 
     # Po wybudzeniu i po zmianie programu dajemy ECM_STALL s spokoju:
     # ecm.info i obraz sa wtedy z definicji nieaktualne.
@@ -1523,10 +1617,11 @@ EOF
 
 # --- Start -----------------------------------------------------------------
 
-# DHCP=auto: tak, jesli klient DHCP dziala juz przy starcie monitora.
+# DHCP=auto: tak, jesli klient DHCP dziala juz przy starcie monitora albo
+# INTERFACES ustawia SIEC_DEV przez DHCP (klient z ifup mogl sie juz poddac).
 # Box z adresem stalym zostaje przy nim - udhcpc zamienilby go na dzierzawe.
 if [ "$DHCP" = auto ]; then
-    if dhcp_dziala; then DHCP=1; else DHCP=0; fi
+    if dhcp_auto; then DHCP=1; else DHCP=0; fi
 fi
 
 if [ "$TRYB" = raz ]; then
@@ -1536,6 +1631,12 @@ if [ "$TRYB" = raz ]; then
     if [ "$NAPRAWA" -eq 1 ]; then
         diagnoza
         echo "siec         $d_txt -> przy problemie czytnika: $d_opis (nic nie zrobiono)"
+        _a=$(adres)
+        if [ "$SIEC_BRAK_PO" -le 0 ]; then _sb="SIEC_BRAK_PO=0 - bez tej kontroli"
+        elif [ -n "$_a" ] && [ -n "$d_gw" ]; then _sb="ok"
+        else _sb="po ${SIEC_BRAK_PO}s braku SIEC-BRAK: $([ "$DHCP" = 1 ] && echo "klient DHCP od nowa" || echo "restart sieci") (nic nie zrobiono)"
+        fi
+        echo "adres        ${_a:-BRAK} na $SIEC_DEV, brama ${d_gw:-BRAK}, DHCP=$DHCP -> $_sb"
     else
         echo "siec         NAPRAWA=0 - bez diagnozy i naprawy"
     fi
