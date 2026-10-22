@@ -66,6 +66,13 @@ shows a ready line with the idx of each device, e.g.
 Switching the option back to **No** keeps the devices and their history;
 delete them in Setup > Devices if not needed.
 
+**Yes, resources in collectd** creates only units 3-8. For a box running
+collectd, which already sends disk, RAM and CPU statistics to RRD on a router;
+the HDD temperature goes there too, through a file written by the monitor (see
+`COLLECTD_PLIK` in [nbox_monitor.conf.example](nbox/nbox_monitor.conf.example)).
+The line in the log lists only units 3-8, so the monitor stops pushing the
+rest. Units 9-13 created earlier stay - delete them by hand.
+
 ## nBox monitor (script running on the box)
 [nbox/](nbox/) holds a watchdog for Enigma2 receivers with OSCam, written and
 tested on nBox ADB 5800SX with GraterliaOS (busybox 1.28, sh4, Python 2.7).

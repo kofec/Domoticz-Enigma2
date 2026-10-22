@@ -12,6 +12,8 @@
 #                   nBox monitor devices (values pushed by nbox_monitor.sh)
 #           3.3.0:  Status shows Standby (Sleeping); Off only when the box
 #                   does not answer even ping
+#           3.4.0:  nBox monitor devices without resources (units 3-8) for a box
+#                   whose disk, RAM and CPU statistics go to collectd
 #       
 #           Base on website: https://dream.reichholf.net/wiki/Enigma2:WebInterface
 #           Miscellaneous
@@ -81,13 +83,14 @@
 # Below is what will be displayed in Domoticz GUI under HW
 #
 """
-<plugin key="Enigma2" name="Enigma2 with Kodi Remote" author="kofec" version="3.3.0" wikilink="no" externallink=" https://dream.reichholf.net/wiki/Enigma2:WebInterface">
+<plugin key="Enigma2" name="Enigma2 with Kodi Remote" author="kofec" version="3.4.0" wikilink="no" externallink=" https://dream.reichholf.net/wiki/Enigma2:WebInterface">
     <params>
         <param field="Address" label="IP Address[:Port]" width="200px" required="true" default="127.0.0.1"/>
-        <param field="Port" label="nBox monitor devices" width="75px">
+        <param field="Port" label="nBox monitor devices" width="250px">
             <options>
                 <option label="No" value="1" default="true"/>
                 <option label="Yes" value="2"/>
+                <option label="Yes, resources in collectd" value="3"/>
             </options>
         </param>
         <param field="Mode1" label="Username" width="200px" required="false" default=""/>
@@ -155,6 +158,9 @@ except ImportError:
 # address field as host:port.
 MONITOR_OFF = "1"
 MONITOR_ON = "2"
+# Units 3-8 only: Root FS, HDD, RAM, CPU and HDD temperature (9-13) are left to
+# collectd on the box, which sends them to RRD on a router.
+MONITOR_NO_RESOURCES = "3"
 
 # nValue of the Status device (Media Player switch type) - Domoticz
 # _eMediaStatus, shown as Status "Off" / "On" / "Sleeping".
@@ -178,6 +184,8 @@ MONITOR_UNITS = (
     (12, "CPU", {"TypeName": "Percentage"}, "DZ_CPU"),
     (13, "HDD temperature", {"TypeName": "Temperature"}, "DZ_HDD_TEMP"),
 )
+# First of the resource units (9-13), not created with MONITOR_NO_RESOURCES.
+MONITOR_FIRST_RESOURCE = 9
 
 
 def parse_address(address, port_field):
@@ -190,7 +198,7 @@ def parse_address(address, port_field):
     if sep and port.isdigit():
         return host, int(port)
     port_field = str(port_field)
-    if port_field.isdigit() and port_field not in ("0", MONITOR_OFF, MONITOR_ON):
+    if port_field.isdigit() and port_field not in ("0", MONITOR_OFF, MONITOR_ON, MONITOR_NO_RESOURCES):
         return address, int(port_field)
     return address, 80
 
@@ -295,7 +303,9 @@ class BasePlugin:
         }
 
         if Parameters["Port"] == MONITOR_ON:
-            self.createMonitorDevices()
+            self.createMonitorDevices(MONITOR_UNITS)
+        elif Parameters["Port"] == MONITOR_NO_RESOURCES:
+            self.createMonitorDevices([u for u in MONITOR_UNITS if u[0] < MONITOR_FIRST_RESOURCE])
 
         Domoticz.Log("Connecting to: {}:{}".format(host, port))
 
@@ -314,14 +324,14 @@ class BasePlugin:
 
     # Units for nbox_monitor.sh. Created only when missing, never removed -
     # switching the option off keeps the devices and their history.
-    def createMonitorDevices(self):
-        for unit, name, spec, _ in MONITOR_UNITS:
+    def createMonitorDevices(self, units):
+        for unit, name, spec, _ in units:
             if unit not in Devices:
                 Domoticz.Device(Name=name, Unit=unit, Used=1, **spec).Create()
                 Domoticz.Log("nBox monitor device created: " + name)
         # One line ready to paste into /root/nbox_monitor.conf on the box
         conf = " ".join("{}={}".format(var, Devices[unit].ID)
-                        for unit, _, _, var in MONITOR_UNITS if unit in Devices)
+                        for unit, _, _, var in units if unit in Devices)
         Domoticz.Log("nbox_monitor.conf: " + conf)
 
     # Check if Enigma TV is On and connected to Network
