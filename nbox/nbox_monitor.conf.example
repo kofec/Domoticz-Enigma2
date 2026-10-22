@@ -33,6 +33,8 @@ NAZWA="nBox Salon"
 # a plugin zaklada urzadzenia i wypisuje w logu Domoticza gotowa linie
 # "nbox_monitor.conf: DZ_ZDARZENIE=... DZ_SNR=..." - wklej ja tutaj bez
 # przedrostka. Bez pluginu: urzadzenia wirtualne (Dummy), typ w komentarzu.
+# Box z collectd: w sprzecie "Yes, resources in collectd" - linia ma wtedy
+# tylko DZ_ZDARZENIE..DZ_BLEDY, a zasoby i temperatura dysku ida do collectd.
 #DZ_ZDARZENIE=   # Text - ostatnie zdarzenie
 #DZ_SNR=         # Percentage - min SNR z okna REPORT
 #DZ_SILA=        # Percentage - min sila sygnalu (tylko z nbox_sygnal.py)
@@ -58,6 +60,12 @@ NAZWA="nBox Salon"
 #DOMOTICZ_TIMEOUT_POWIADOM=15
 # Temperatura dysku: co ile s, gdy sie kreci (uspionego smartctl nie budzi).
 #HDD_TEMP_CO=1800
+
+# --- collectd ----------------------------------------------------------------
+# Temperatura dysku do pliku czytanego przez plugin table pakietu collectd-nbox
+# (RRD na routerze w hddtemp/temperature-sda). auto = /tmp/collectd_nbox.tab,
+# gdy jest /etc/init.d/collectd (pakiet zainstalowany). "" wylacza. Smartctl dalej najwyzej co HDD_TEMP_CO s (FAN=1: co FAN_CO s).
+#COLLECTD_PLIK=auto
 
 # --- Wentylator --------------------------------------------------------------
 # Domyslnie PWM ustawia samo firmware, przy zmianie stanu boxa i bez zwiazku

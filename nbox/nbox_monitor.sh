@@ -167,6 +167,11 @@
 #                                razem z obrazem), raport() ponawia co REPORT s.
 #                                ZEGAR bez powiadomienia: zdarza sie przy
 #                                starcie, a naprawia go linia w rc.local.
+#   collectd (opcjonalnie)       temperatura dysku do COLLECTD_PLIK ("sda 45",
+#                                pusty, gdy nieznana) - czyta go plugin table
+#                                collectd-nbox; zasoby (rootfs, /hdd, RAM, CPU)
+#                                collectd zbiera sam, wtedy bez DZ_ROOTFS..
+#                                DZ_HDD_TEMP.
 #   wentylator (opcjonalnie)     przy FAN=1: gdy dysk sie kreci i grzeje,
 #                                PWM rosnie rampa co FAN_KROK stopni, a po
 #                                wystygnieciu albo zasnieciu dysku sterowanie
@@ -299,6 +304,9 @@ DZ_HDD_TEMP="${DZ_HDD_TEMP:-}"    # st. C dysku, tylko gdy sie kreci
 HDD_DEV="${HDD_DEV:-/dev/sda}"
 SMARTCTL="${SMARTCTL:-/usr/sbin/smartctl}"
 HDD_TEMP_CO="${HDD_TEMP_CO:-1800}" # s, co ile temperatura krecacego sie dysku
+# Temperatura dysku dla pluginu table collectd-nbox. auto = ten plik, gdy jest
+# /etc/init.d/collectd (pakiet zainstalowany); "" = bez collectd.
+COLLECTD_PLIK="${COLLECTD_PLIK-auto}"
 
 # Wentylator. Firmware ustawia PWM tylko przy zmianie stanu boxa (wartosci
 # config.fans.0.pwm i pwm_standby z /etc/enigma2/settings), bez zwiazku
@@ -613,6 +621,25 @@ hdd_temp() {
     z_hdd_temp=$(echo "$_ht_out" \
         | awk '/Temperature_Celsius|Airflow_Temperature/ { print $10; exit }')
     liczba "$z_hdd_temp" && hdd_temp_ost="$_ht"
+    return 0
+}
+
+# Temperatura dla collectd (plugin table, Plugin "hddtemp"): "sda 45" albo
+# pusty plik, gdy nieznana (dysk spi, brak smartctl) - pusty to brak wartosci,
+# bez bledu w logu collectd. Miedzy odczytami (HDD_TEMP_CO, przy FAN=1 FAN_CO
+# s) zostaje ostatnia; zasniecie dysku widac najpozniej po takim odstepie.
+# Przez .tmp i mv - collectd nie przeczyta polowy linii.
+collectd_temp=""
+collectd_zapisz() {
+    if liczba "$z_hdd_temp"; then collectd_temp="$z_hdd_temp"
+    elif [ -n "$z_hdd_spi" ]; then collectd_temp=""
+    fi
+    if [ -n "$collectd_temp" ]; then
+        echo "${HDD_DEV##*/} $collectd_temp" > "$COLLECTD_PLIK.tmp"
+    else
+        : > "$COLLECTD_PLIK.tmp"
+    fi
+    mv -f "$COLLECTD_PLIK.tmp" "$COLLECTD_PLIK" 2>/dev/null
     return 0
 }
 
@@ -1224,7 +1251,7 @@ dz_wyslij() {
     dz_update "$1" "$2" || { dz_runda=1; return 1; }
 }
 
-okno_snr=""; okno_sila=""; okno_ber=""; okno_ecm=0; okno_bledy=0
+okno_snr=""; okno_sila=""; okno_ber=""; okno_ecm=0; okno_bledy=0; ht_runda=0
 raport() {
     if [ "$DOMOTICZ" -eq 1 ]; then
         dz_runda=0
@@ -1238,17 +1265,19 @@ raport() {
         dz_wyslij "$idx_hdd" "$z_hdd"
         dz_wyslij "$idx_ram" "$z_ram"
         dz_wyslij "$idx_cpu" "$z_cpu"
-        if [ -n "$idx_hdd_temp" ]; then hdd_temp; dz_wyslij "$idx_hdd_temp" "$z_hdd_temp"; fi
+        if [ -n "$idx_hdd_temp" ]; then hdd_temp; ht_runda=1; dz_wyslij "$idx_hdd_temp" "$z_hdd_temp"; fi
         if [ -n "$zal_temat" ] && [ "$dz_runda" -eq 0 ] \
             && dz_notify "$zal_temat" "$zal_tresc (wyslane z opoznieniem)"; then
             zal_temat=""
         fi
     fi
-    if [ "$FAN" -eq 1 ]; then
-        # bez Domoticza (albo bez DZ_HDD_TEMP) nikt jeszcze temperatury nie czytal
-        if [ "$DOMOTICZ" -ne 1 ] || [ -z "$idx_hdd_temp" ]; then hdd_temp; fi
-        wentylator
+    # bez Domoticza (albo bez DZ_HDD_TEMP) nikt jeszcze temperatury nie czytal
+    if [ "$ht_runda" -eq 0 ] && { [ "$FAN" -eq 1 ] || [ -n "$COLLECTD_PLIK" ]; }; then
+        hdd_temp
     fi
+    ht_runda=0
+    [ -n "$COLLECTD_PLIK" ] && collectd_zapisz
+    [ "$FAN" -eq 1 ] && wentylator
     okno_snr=""; okno_sila=""; okno_ber=""; okno_ecm=0; okno_bledy=0
 }
 
@@ -1698,10 +1727,18 @@ if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF" 2>/dev/null)" 2>/dev/null; then
 fi
 mkdir -p "$RAM_DIR" || exit 1
 [ "$DOMOTICZ" -eq 1 ] && dz_start
+if [ "$COLLECTD_PLIK" = auto ]; then
+    COLLECTD_PLIK=/tmp/collectd_nbox.tab
+    [ -e /etc/init.d/collectd ] || COLLECTD_PLIK=""
+fi
+# pusty od razu: stara temperatura z poprzedniego monitora nie wraca
+[ -n "$COLLECTD_PLIK" ] && collectd_zapisz
 echo $$ > "$PIDF"
-trap '[ -n "$sygnal_pid" ] && kill "$sygnal_pid" 2>/dev/null; rm -f "$PIDF"; exit 0' INT TERM
+# Przy wyjsciu pusty plik collectd - zatrzymany monitor nie podaje
+# temperatury, a brak pliku to blad w kazdym odczycie collectd.
+trap '[ -n "$sygnal_pid" ] && kill "$sygnal_pid" 2>/dev/null; [ -n "$COLLECTD_PLIK" ] && : > "$COLLECTD_PLIK"; rm -f "$PIDF"; exit 0' INT TERM
 
-logger -t "$TAG" "start: POLL=${POLL}s ECM_STALL=${ECM_STALL}s incydenty=[$INCYDENT_TYPY] -> $LOG_DIR, RAM=$RAM_DIR, Domoticz=$DOMOTICZ"
+logger -t "$TAG" "start: POLL=${POLL}s ECM_STALL=${ECM_STALL}s incydenty=[$INCYDENT_TYPY] -> $LOG_DIR, RAM=$RAM_DIR, Domoticz=$DOMOTICZ, collectd=${COLLECTD_PLIK:-nie}"
 start_pomocnika
 # Start monitora = zwykle start boxa; w Domoticzu widac wtedy restarty, np.
 # ten po REBOOT_PO s bez bramy albo internetu.
