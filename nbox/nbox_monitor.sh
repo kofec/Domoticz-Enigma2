@@ -261,6 +261,12 @@ TV_TYP="${TV_TYP:-1}"             # okno enigmy: 1 informacja, 2 ostrzezenie, 3 
 [ -n "${TV_RADA_KANAL+x}" ]  || TV_RADA_KANAL='Zmien kanal i wroc.'
 [ -n "${TV_RADA_ODRZUCA+x}" ] || TV_RADA_ODRZUCA='Obraz zwykle wraca sam w ciagu minuty - jesli nie, zmien kanal i wroc.'
 [ -n "${TV_TXT_LOCK_CHWILOWY+x}" ] || TV_TXT_LOCK_CHWILOWY='Chwilowe zaklocenie odbioru z satelity.\nObraz powinien wrocic sam za kilka sekund.'
+# Rada przy STOP z braku polaczenia z serwerem kart, gdy router mowi, czemu
+# (STAN_URL). Ludzie restartuja wtedy router i dekoder - Ludynia 16-24.10,
+# za kazdym razem bez skutku - wiec rada mowi wprost, gdzie lezy problem.
+[ -n "${TV_RADA_DALEKO+x}" ] || TV_RADA_DALEKO='Awaria internetu poza domem - restart routera i dekodera nic nie da.\nObraz wroci, gdy wroci internet.'
+[ -n "${TV_RADA_MOST+x}" ]   || TV_RADA_MOST='Nie odpowiada antena radiolinii przy domu.\nWylacz na 10 s jej zasilacz i wlacz ponownie.'
+[ -n "${TV_RADA_SERWER+x}" ] || TV_RADA_SERWER='Internet dziala - problem jest po stronie serwera kart.\nRestart routera ani dekodera nic nie da.'
 
 RAM_DIR="${RAM_DIR:-/tmp/nbox_monitor}"
 PROBKI_MAX="${PROBKI_MAX:-2160}"       # linii probek (2160 x 10 s = 6 h) + .1
@@ -333,6 +339,10 @@ NAPRAWA_PO="${NAPRAWA_PO:-40}"     # s problemu czytnika do pierwszej diagnozy
 NAPRAWA_CO="${NAPRAWA_CO:-120}"    # s miedzy kolejnymi diagnozami
 REBOOT_PO="${REBOOT_PO:-3600}"     # s bez bramy albo internetu do restartu; 0 = nigdy
 PING_INTERNET="${PING_INTERNET:-8.8.8.8 1.1.1.1}"
+# Stan lacza z routera (Ludynia: ubnt_stan.cgi czyta stan ubnt_watchdog.sh,
+# odpowiedz "stan=..."). Tylko do rady na ekranie (TV_RADA_DALEKO/MOST/SERWER);
+# puste albo brak odpowiedzi = TV_RADA_CZEKAJ jak dotad.
+STAN_URL="${STAN_URL-}"
 SIEC_BRAK_PO="${SIEC_BRAK_PO:-300}" # s bez adresu albo trasy default do SIEC-BRAK; 0 = bez tej kontroli
 SIEC_BRAK_CO="${SIEC_BRAK_CO:-300}" # s miedzy kolejnymi naprawami SIEC-BRAK
 SIEC_DEV="${SIEC_DEV:-eth0}"
@@ -1136,6 +1146,25 @@ zamien() {
     printf '%s' "$_z_w$_z_t"
 }
 
+# Rada wedlug stanu lacza z routera (STAN_URL); kod 1 = brak, zostaje
+# domyslna. "ok" z routera sprawdzamy jeszcze wlasnym pingiem: watchdog
+# patrzy co 2 min, wiec na poczatku awarii moze jeszcze mowic "ok".
+rada_z_routera() {
+    [ -n "$STAN_URL" ] || return 1
+    _st=$(pobierz "$STAN_URL" | sed -n 's/^stan=\([a-z_]*\).*/\1/p' | head -n 1)
+    _r=""
+    case "$_st" in
+        awaria_radia|awaria_isp) _r="$TV_RADA_DALEKO" ;;
+        most_niedostepny)        _r="$TV_RADA_MOST" ;;
+        ok)
+            for _h in $PING_INTERNET; do
+                if ping1 "$_h"; then _r="$TV_RADA_SERWER"; break; fi
+            done ;;
+    esac
+    [ -n "$_r" ] || return 1
+    printf '%s' "$_r"
+}
+
 # Tekst dla ogladajacego ($1 typ, $2 opis zdarzenia); pusto = nic nie pokazujemy.
 # Szablony TV_TXT_* z konfiguracji; przyczyne STOP bierze ze zmiennych
 # biezacego przebiegu.
@@ -1162,6 +1191,11 @@ tv_tresc() {
                 else
                     _rada="$TV_RADA_ODRZUCA"
                 fi
+            fi
+            # Czytniki bez polaczenia: ani czekanie w ciemno, ani zmiana kanalu
+            # nie pomoga - jesli router wie, gdzie lezy problem, mowimy wprost.
+            if [ "$_p" = "$TV_PRZ_SIEC" ]; then
+                _rr=$(rada_z_routera) && _rada="$_rr"
             fi ;;
         LOCK)
             # Lock spada przy wysokim SNR na 10-30 s (Podlipie 28-30.09, SNR

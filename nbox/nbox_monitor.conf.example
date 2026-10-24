@@ -127,6 +127,17 @@ NAZWA="nBox Salon"
 #TV_RADA_CZEKAJ="Poczekaj - obraz powinien wrocic sam."
 #TV_RADA_KANAL="Zmien kanal i wroc."
 #TV_RADA_ODRZUCA="Obraz zwykle wraca sam w ciagu minuty - jesli nie, zmien kanal i wroc."
+# Gdy zaden czytnik nie jest polaczony, a STAN_URL jest ustawiony, rada idzie
+# za stanem lacza z routera ("stan=..."; Ludynia: ubnt_stan.cgi z MojeRepo):
+#   awaria_radia, awaria_isp -> TV_RADA_DALEKO (problem dalej niz nasz most)
+#   most_niedostepny         -> TV_RADA_MOST   (nasza antena nie odpowiada)
+#   ok + wlasny ping dziala  -> TV_RADA_SERWER (internet jest, serwer kart nie)
+# Brak odpowiedzi albo inny stan - jak wyzej. Rada dluzsza niz linia - warto
+# podniesc TV_CZAS.
+#STAN_URL="http://192.168.3.1/cgi-bin/ubnt_stan"
+#TV_RADA_DALEKO="Awaria internetu poza domem - restart routera i dekodera nic nie da.\nObraz wroci, gdy wroci internet."
+#TV_RADA_MOST="Nie odpowiada antena radiolinii przy domu.\nWylacz na 10 s jej zasilacz i wlacz ponownie."
+#TV_RADA_SERWER="Internet dziala - problem jest po stronie serwera kart.\nRestart routera ani dekodera nic nie da."
 
 # --- Siec --------------------------------------------------------------------
 # Ping tylko wtedy, gdy tuner pracuje (nie w standby), a zaden czytnik oscama
