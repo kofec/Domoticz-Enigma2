@@ -133,8 +133,13 @@ NAZWA="nBox Salon"
 #   most_niedostepny         -> TV_RADA_MOST   (nasza antena nie odpowiada)
 #   ok + wlasny ping dziala  -> TV_RADA_SERWER (internet jest, serwer kart nie)
 # Brak odpowiedzi albo inny stan - jak wyzej. Rada dluzsza niz linia - warto
-# podniesc TV_CZAS.
+# podniesc TV_CZAS. Awaria zgloszona przez router (DALEKO/MOST) wygrywa takze
+# wtedy, gdy jeden czytnik jeszcze wisi jako CONNECTED. Gdy router potwierdzi
+# awarie dopiero po STOP (sprawdza co 2 min), rada idzie osobnym komunikatem
+# TV_TXT_RADA - raz na problem czytnika, bez czekania na TV_GAP; pusty wylacza.
+# Przy awarii potwierdzonej przez router box nie liczy tez czasu do REBOOT_PO.
 #STAN_URL="http://192.168.3.1/cgi-bin/ubnt_stan"
+#TV_TXT_RADA="Brak polaczenia z serwerem kart.\n{RADA}"
 #TV_RADA_DALEKO="Awaria internetu poza domem - restart routera i dekodera nic nie da.\nObraz wroci, gdy wroci internet."
 #TV_RADA_MOST="Nie odpowiada antena radiolinii przy domu.\nWylacz na 10 s jej zasilacz i wlacz ponownie."
 #TV_RADA_SERWER="Internet dziala - problem jest po stronie serwera kart.\nRestart routera ani dekodera nic nie da."
@@ -144,7 +149,8 @@ NAZWA="nBox Salon"
 # nie jest polaczony: do bramy
 # (z trasy default) i do PING_INTERNET, do tego stan klienta DHCP. Akcja: klient DHCP
 # od nowa albo restart sieci; restart boxa po REBOOT_PO s bez bramy albo
-# internetu. NAPRAWA=0 wylacza wszystkie zmiany na boxie.
+# internetu (bez internetu - tylko gdy router z STAN_URL nie potwierdza awarii
+# za brama). NAPRAWA=0 wylacza wszystkie zmiany na boxie.
 #NAPRAWA=1
 #NAPRAWA_PO=40        # s problemu czytnika do pierwszej diagnozy
 #NAPRAWA_CO=120       # s miedzy diagnozami

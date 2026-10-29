@@ -267,6 +267,8 @@ TV_TYP="${TV_TYP:-1}"             # okno enigmy: 1 informacja, 2 ostrzezenie, 3 
 [ -n "${TV_RADA_DALEKO+x}" ] || TV_RADA_DALEKO='Awaria internetu poza domem - restart routera i dekodera nic nie da.\nObraz wroci, gdy wroci internet.'
 [ -n "${TV_RADA_MOST+x}" ]   || TV_RADA_MOST='Nie odpowiada antena radiolinii przy domu.\nWylacz na 10 s jej zasilacz i wlacz ponownie.'
 [ -n "${TV_RADA_SERWER+x}" ] || TV_RADA_SERWER='Internet dziala - problem jest po stronie serwera kart.\nRestart routera ani dekodera nic nie da.'
+# Osobny komunikat, gdy router potwierdzi awarie juz po STOP; pusty wylacza.
+[ -n "${TV_TXT_RADA+x}" ]    || TV_TXT_RADA='Brak polaczenia z serwerem kart.\n{RADA}'
 
 RAM_DIR="${RAM_DIR:-/tmp/nbox_monitor}"
 PROBKI_MAX="${PROBKI_MAX:-2160}"       # linii probek (2160 x 10 s = 6 h) + .1
@@ -704,7 +706,7 @@ zd_liczba=0; zd_ostatnie=""; zd_wazne=""; zd_wazny_txt=""
 pow_stop=""; pow_czytnik=""; pow_inne=""; pow_siec=""
 inc_nowy=""; inc_txt=""; inc_koniec=""; inc_plik=""; inc_od=0
 inc_ost=""; inc_ost_typ=""
-tv_nowy=""; tv_opis=""; tv_ost=""
+tv_nowy=""; tv_opis=""; tv_ost=""; tv_ost_txt=""
 
 zdarzenie() {
     _linia="$(stempel) up=$(uptime_s) $1 $2"
@@ -993,10 +995,10 @@ restart_boxa() {
     sleep 120
 }
 
-naprawa_ost=""; siec_zla_od=""
+naprawa_ost=""; siec_zla_od=""; rada_pokazana=""
 naprawa_krok() {
     if [ -z "$czyt_od" ] || [ "$czyt_zgloszony" -ne 1 ] || [ "$czyt_ok" -gt 0 ]; then
-        naprawa_ost=""; siec_zla_od=""
+        naprawa_ost=""; siec_zla_od=""; rada_pokazana=""
         return 0
     fi
     # box bez adresu albo bramy - naprawia siec_brak_krok, nie dwa razy
@@ -1008,10 +1010,25 @@ naprawa_krok() {
     naprawa_ost="$up"
 
     diagnoza
-    if [ "$d_gw_ok" -eq 1 ] && [ "$d_net_ok" -eq 1 ]; then
+    # Router potwierdza awarie za nasza brama (STAN_URL) - restart boxa nic
+    # nie da (Babcia 24.10 15:05: REBOOT_PO w srodku awarii przesla u Cioci).
+    _ra=""
+    if [ "$d_gw_ok" -eq 1 ] && [ "$d_net_ok" -eq 0 ]; then
+        _ra=$(rada_z_routera awaria) || _ra=""
+    fi
+    if [ "$d_gw_ok" -eq 1 ] && { [ "$d_net_ok" -eq 1 ] || [ -n "$_ra" ]; }; then
         siec_zla_od=""
     elif [ -z "$siec_zla_od" ]; then
         siec_zla_od="$up"
+    fi
+    [ -n "$_ra" ] && d_opis="$d_opis (router: awaria za brama, bez restartu boxa)"
+    # Komunikat STOP przychodzi ~30 s po zerwaniu, a watchdog na routerze
+    # sprawdza co 2 min - STOP mial wtedy "Poczekaj" (Babcia 28.10 17:24).
+    # Gdy router potwierdzi awarie pozniej, rada idzie na ekran raz na problem
+    # czytnika, bez czekania na TV_GAP.
+    if [ -n "$_ra" ] && [ -z "$rada_pokazana" ]; then
+        rada_pokazana="$up"
+        tv_rada_pokaz "$_ra"
     fi
     if [ "$REBOOT_PO" -gt 0 ] && [ -n "$siec_zla_od" ] && [ $((up - siec_zla_od)) -ge "$REBOOT_PO" ]; then
         restart_boxa "czytnik bez polaczenia od ${_dt}s, $d_txt od $((up - siec_zla_od))s"
@@ -1149,6 +1166,7 @@ zamien() {
 # Rada wedlug stanu lacza z routera (STAN_URL); kod 1 = brak, zostaje
 # domyslna. "ok" z routera sprawdzamy jeszcze wlasnym pingiem: watchdog
 # patrzy co 2 min, wiec na poczatku awarii moze jeszcze mowic "ok".
+# $1 = "awaria": tylko awaria zgloszona przez router (DALEKO/MOST), bez "ok".
 rada_z_routera() {
     [ -n "$STAN_URL" ] || return 1
     _st=$(pobierz "$STAN_URL" | sed -n 's/^stan=\([a-z_]*\).*/\1/p' | head -n 1)
@@ -1157,6 +1175,7 @@ rada_z_routera() {
         awaria_radia|awaria_isp) _r="$TV_RADA_DALEKO" ;;
         most_niedostepny)        _r="$TV_RADA_MOST" ;;
         ok)
+            [ "$1" = awaria ] && return 1
             for _h in $PING_INTERNET; do
                 if ping1 "$_h"; then _r="$TV_RADA_SERWER"; break; fi
             done ;;
@@ -1194,8 +1213,13 @@ tv_tresc() {
             fi
             # Czytniki bez polaczenia: ani czekanie w ciemno, ani zmiana kanalu
             # nie pomoga - jesli router wie, gdzie lezy problem, mowimy wprost.
+            # Awaria zgloszona przez router wygrywa tez wtedy, gdy jeden czytnik
+            # jeszcze wisi jako CONNECTED (Dziadek 28.10 17:23: newcamd
+            # "polaczony" 33 s po zerwaniu lacza, na ekranie "serwer kart").
             if [ "$_p" = "$TV_PRZ_SIEC" ]; then
                 _rr=$(rada_z_routera) && _rada="$_rr"
+            elif [ "$_p" != "$TV_PRZ_OSCAM" ] && _rr=$(rada_z_routera awaria); then
+                _p="$TV_PRZ_SIEC"; _rada="$_rr"
             fi ;;
         LOCK)
             # Lock spada przy wysokim SNR na 10-30 s (Podlipie 28-30.09, SNR
@@ -1253,13 +1277,30 @@ tv_pokaz() {
         ekran_log EKRAN-POMINIETY "$_typ - poprzedni komunikat $((_t - tv_ost))s temu (TV_GAP=${TV_GAP}s)"
         return 0
     fi
-    tv_ost="$_t"
+    tv_ost="$_t"; tv_ost_txt="$_txt"
     if tv_wyslij "$_txt"; then
         ekran_log EKRAN "$_typ: $_txt"
     else
         ekran_log EKRAN-BLAD "$_typ - OpenWebif ($E2_URL) nie przyjal komunikatu"
     fi
     return 0
+}
+
+# Rada z routera ($1, szablon z "\n") jako osobny komunikat - z naprawa_krok,
+# gdy router potwierdzil awarie juz po STOP. Pomijamy, gdy ostatni komunikat
+# mial juz te rade (STOP przyszedl, kiedy router wiedzial).
+tv_rada_pokaz() {
+    [ "$tuner" -eq 1 ] || return 0
+    [ -n "$TV_TXT_RADA" ] || return 0
+    _rd=$(printf '%b' "$1")
+    case "$tv_ost_txt" in *"$_rd"*) return 0 ;; esac
+    _txt=$(printf '%b' "$(zamien "$TV_TXT_RADA" "{RADA}" "$1")")
+    tv_ost=$(uptime_s); tv_ost_txt="$_txt"
+    if tv_wyslij "$_txt"; then
+        ekran_log EKRAN "RADA: $_txt"
+    else
+        ekran_log EKRAN-BLAD "RADA - OpenWebif ($E2_URL) nie przyjal komunikatu"
+    fi
 }
 
 po_przebiegu() {
